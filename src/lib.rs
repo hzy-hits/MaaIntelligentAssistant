@@ -16,10 +16,11 @@ pub use ai_client::{
     AiClient, AiClientTrait, AiClientConfig, ProviderConfig, AiProvider, AiProviderExt,
     AiError, AiResult, ChatMessage, Tool, FunctionCall, StreamEvent
 };
-pub use maa_adapter::{MaaAdapter, MaaAdapterTrait, MaaConfig, MaaStatus, MaaError, MaaResult};
+pub use maa_adapter::{MaaBackend, BackendConfig, MaaConfig, MaaStatus, MaaError, MaaResult};
 pub use mcp_tools::{
     MaaFunctionServer, create_function_server, FunctionDefinition, 
-    FunctionCall as MaaFunctionCall, FunctionResponse
+    FunctionCall as MaaFunctionCall, FunctionResponse,
+    EnhancedMaaFunctionServer, create_enhanced_function_server
 };
 pub use operator_manager::{
     OperatorManager, OperatorManagerConfig, OperatorManagerTrait,

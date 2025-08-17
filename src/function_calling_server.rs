@@ -10,19 +10,54 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{info, error};
 
-use crate::mcp_tools::{MaaFunctionServer, FunctionDefinition, FunctionCall, FunctionResponse};
+use crate::mcp_tools::{MaaFunctionServer, EnhancedMaaFunctionServer, FunctionDefinition, FunctionCall, FunctionResponse};
 use crate::ai_client::client::AiClientTrait;
+
+/// Function Calling服务器接口trait
+#[async_trait]
+pub trait FunctionCallingServerTrait: Send + Sync {
+    /// 获取函数定义
+    fn get_function_definitions(&self) -> Vec<FunctionDefinition>;
+    
+    /// 执行函数调用
+    async fn execute_function(&self, call: FunctionCall) -> FunctionResponse;
+}
+
+/// 为基础MaaFunctionServer实现trait
+#[async_trait]
+impl FunctionCallingServerTrait for MaaFunctionServer {
+    fn get_function_definitions(&self) -> Vec<FunctionDefinition> {
+        self.get_function_definitions()
+    }
+    
+    async fn execute_function(&self, call: FunctionCall) -> FunctionResponse {
+        self.execute_function(call).await
+    }
+}
+
+/// 为增强EnhancedMaaFunctionServer实现trait
+#[async_trait]
+impl FunctionCallingServerTrait for EnhancedMaaFunctionServer {
+    fn get_function_definitions(&self) -> Vec<FunctionDefinition> {
+        self.get_function_definitions()
+    }
+    
+    async fn execute_function(&self, call: FunctionCall) -> FunctionResponse {
+        self.execute_function(call).await
+    }
+}
 
 /// 服务器状态
 #[derive(Clone)]
 pub struct AppState {
-    pub function_server: Arc<MaaFunctionServer>,
+    pub function_server: Arc<dyn FunctionCallingServerTrait>,
 }
 
 /// 工具列表响应
@@ -57,11 +92,13 @@ pub struct ErrorResponse {
 }
 
 /// 启动Function Calling HTTP服务器
-pub async fn start_function_calling_server(
-    function_server: Arc<MaaFunctionServer>,
+pub async fn start_function_calling_server<T: FunctionCallingServerTrait + 'static>(
+    function_server: Arc<T>,
     port: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let state = AppState { function_server };
+    let state = AppState { 
+        function_server: function_server as Arc<dyn FunctionCallingServerTrait> 
+    };
 
     // 检查静态文件目录是否存在
     let serve_static = if std::path::Path::new("./static").exists() {
@@ -334,7 +371,7 @@ async fn chat_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::maa_adapter::{MaaAdapter, MaaConfig};
+    use crate::maa_adapter::{MaaAdapter, MaaAdapterTrait, MaaConfig};
     use crate::mcp_tools::create_function_server;
 
     #[tokio::test]

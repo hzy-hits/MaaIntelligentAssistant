@@ -1,3 +1,6 @@
 [submodule "maa-official"]
 	path = maa-official
 	url = https://github.com/MaaAssistantArknights/MaaAssistantArknights.git
+[submodule "maa-cli"]
+	path = maa-cli
+	url = https://github.com/MaaAssistantArknights/maa-cli.git

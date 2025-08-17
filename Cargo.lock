@@ -1094,6 +1094,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
 
 [[package]]
+name = "libloading"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
+dependencies = [
+ "cfg-if",
+ "windows-targets 0.48.5",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1139,6 +1149,8 @@ dependencies = [
  "chrono",
  "dotenvy",
  "futures",
+ "maa-sys",
+ "maa-types",
  "regex",
  "reqwest 0.11.27",
  "rmcp",
@@ -1155,6 +1167,25 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "maa-sys"
+version = "0.7.0"
+dependencies = [
+ "libloading",
+ "maa-types",
+ "thiserror 2.0.14",
+ "windows-result",
+ "windows-strings",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "maa-types"
+version = "0.2.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

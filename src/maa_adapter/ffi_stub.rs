@@ -206,7 +206,7 @@ impl MaaFFIStub {
     }
 
     /// Get all active tasks (stub)
-    pub fn get_tasks(&mut self) -> MaaResult<Vec<i32>> {
+    pub fn get_tasks(&self) -> MaaResult<Vec<i32>> {
         let tasks = self.active_tasks.lock().map_err(|_| {
             MaaError::synchronization("get_tasks", "Failed to acquire tasks lock")
         })?;
@@ -234,6 +234,17 @@ impl MaaFFIStub {
     /// Log message via MAA (stub)
     pub fn log(level: &str, message: &str) -> MaaResult<()> {
         info!("Stub MAA Log [{}]: {}", level, message);
+        Ok(())
+    }
+    
+    /// Check if connected to device (stub)
+    pub fn is_connected(&self) -> bool {
+        self.connection_params.is_some()
+    }
+    
+    /// Go back to home screen (stub)
+    pub fn back_to_home(&self) -> MaaResult<()> {
+        debug!("Stub: Going back to home screen");
         Ok(())
     }
 }

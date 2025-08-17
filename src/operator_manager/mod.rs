@@ -62,7 +62,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::maa_adapter::MaaAdapterTrait;
+use crate::maa_adapter::MaaBackend;
 
 // Re-export public types
 pub use types::{
@@ -118,8 +118,8 @@ impl Default for OperatorManagerConfig {
 /// Provides a unified interface for all operator management operations.
 /// Coordinates between scanning, caching, and querying functionality.
 pub struct OperatorManager {
-    /// MAA adapter for scanning operations
-    _maa_adapter: Arc<dyn MaaAdapterTrait + Send + Sync>,
+    /// MAA backend for scanning operations
+    _maa_backend: Arc<MaaBackend>,
     
     /// Operator cache
     cache: Arc<OperatorCache>,
@@ -137,7 +137,7 @@ pub struct OperatorManager {
 impl OperatorManager {
     /// Create a new operator manager
     pub async fn new(
-        maa_adapter: Arc<dyn MaaAdapterTrait + Send + Sync>,
+        maa_backend: Arc<MaaBackend>,
         config: OperatorManagerConfig,
     ) -> OperatorResult<Self> {
         info!("Initializing Operator Manager");
@@ -147,13 +147,13 @@ impl OperatorManager {
         
         // Initialize scanner
         let scanner = OperatorScanner::new(
-            maa_adapter.clone(),
+            maa_backend.clone(),
             cache.clone(),
             config.scanner.clone(),
         );
         
         let manager = Self {
-            _maa_adapter: maa_adapter,
+            _maa_backend: maa_backend,
             cache,
             scanner,
             config,

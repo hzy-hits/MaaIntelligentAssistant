@@ -31,10 +31,10 @@
 pub mod types;
 pub mod errors;
 pub mod callbacks;
-pub mod core;
-pub mod ffi_wrapper;
 pub mod ffi_stub;
-pub mod ffi_bindings;
+pub mod ffi_real;
+pub mod backend;
+pub mod integration_test;
 
 // Re-export public API
 pub use types::{
@@ -44,8 +44,7 @@ pub use types::{
 pub use errors::{MaaError, MaaResult};
 pub use callbacks::CallbackHandler;
 pub use types::CallbackMessage;
-pub use core::{MaaAdapter, MaaAdapterTrait};
-pub use ffi_wrapper::{MaaFFIWrapper, ConnectionParams};
+pub use backend::{MaaBackend, BackendConfig};
 
 // Constants for MAA operations
 pub const DEFAULT_TIMEOUT_MS: u64 = 30000;

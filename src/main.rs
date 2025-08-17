@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 use maa_intelligent_server::{
-    MaaAdapter, MaaAdapterTrait, MaaConfig, create_function_server,
+    MaaBackend, BackendConfig, create_function_server,
     function_calling_server::start_function_calling_server,
 };
 use tracing::{info, error};
@@ -22,25 +22,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("MAA智能控制中间层启动");
     info!("架构: 大模型API → Function Calling → MAA适配器 → MAA Core");
 
-    // 1. 初始化MAA适配器
-    info!("初始化MAA适配器...");
-    let maa_config = MaaConfig::default();
-    let maa_adapter = match MaaAdapter::new(maa_config).await {
-        Ok(adapter) => {
-            info!("MAA适配器初始化成功");
-            Arc::new(adapter) as Arc<dyn MaaAdapterTrait + Send + Sync>
+    // 1. 初始化MAA后端
+    info!("初始化MAA后端...");
+    let backend_config = BackendConfig::default();
+    let maa_backend = match MaaBackend::new(backend_config) {
+        Ok(backend) => {
+            info!("MAA后端初始化成功，模式: {}", backend.backend_type());
+            Arc::new(backend)
         }
         Err(e) => {
-            error!("MAA适配器初始化失败: {}", e);
-            error!("这可能是因为MAA Core库未正确配置");
-            error!("请检查 MAA Core 是否正确安装和配置");
-            return Err(e.into());
+            error!("MAA后端初始化失败: {}", e);
+            error!("这可能是因为MAA Core库未正确配置，将使用stub模式");
+            // 强制使用stub模式作为fallback
+            let fallback_config = BackendConfig {
+                force_stub: true,
+                ..BackendConfig::default()
+            };
+            let fallback_backend = MaaBackend::new(fallback_config)?;
+            info!("使用fallback stub模式");
+            Arc::new(fallback_backend)
         }
     };
 
     // 2. 创建Function Calling服务器
     info!("创建Function Calling服务器...");
-    let function_server = Arc::new(create_function_server(maa_adapter));
+    let function_server = Arc::new(create_function_server(maa_backend));
 
     // 3. 显示可用工具
     info!("可用的MAA工具:");
