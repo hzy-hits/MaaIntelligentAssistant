@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # MAA 全栈服务（后端 + 前端）
+  maa-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: maa-server
+    ports:
+      - "${MAA_PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      - RUST_LOG=${LOG_LEVEL:-info}
+      - QWEN_API_KEY=${QWEN_API_KEY}
+      - QWEN_API_BASE=${QWEN_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+    volumes:
+      - maa-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  maa-data:
+    driver: local
+
+networks:
+  default:
+    name: maa-network

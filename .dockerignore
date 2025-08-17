@@ -1,0 +1,45 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Frontend
+maa-chat-ui/node_modules/
+maa-chat-ui/dist/
+maa-chat-ui/.vite/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+README.md
+CLAUDE.md
+*.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env*
+!.env.example
+
+# Scripts
+scripts/
+
+# Examples
+examples/
+
+# Tests
+tests/
