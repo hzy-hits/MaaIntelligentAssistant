@@ -23,14 +23,16 @@ WORKDIR /app
 
 # 复制配置文件
 COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
 
 # 复制源代码
 COPY src ./src
 
-# 构建项目
-RUN cargo build --release
+# Docker构建：仅支持Stub模式（开发环境）
+# 真实MAA集成请使用本地部署 ./scripts/deploy-local.sh
+RUN cargo build --release --bin maa-server
 
-# 运行阶段
+# 运行阶段（开发环境专用）
 FROM debian:bookworm-slim
 
 # 安装运行时依赖
@@ -46,11 +48,13 @@ RUN useradd -m -u 1000 maa && mkdir -p /app/data /app/static && chown -R maa:maa
 WORKDIR /app
 
 # 从构建阶段复制文件
-COPY --from=backend-builder /app/target/release/maa-intelligent-server /app/maa-server
+COPY --from=backend-builder /app/target/release/maa-server /app/maa-server
 COPY --from=frontend-builder /app/frontend/dist /app/static
 
-# 复制配置文件
+# 复制配置文件和文档
 COPY --chown=maa:maa .env* ./
+COPY --chown=maa:maa config/ ./config/
+COPY --chown=maa:maa docs/ ./docs/
 
 # 设置权限
 RUN chmod +x /app/maa-server
@@ -64,6 +68,10 @@ EXPOSE 8080
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
+
+# 设置环境变量（Stub模式）
+ENV MAA_BACKEND_MODE=stub
+ENV RUST_LOG=info
 
 # 启动应用
 CMD ["/app/maa-server"]

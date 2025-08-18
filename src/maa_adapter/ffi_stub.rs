@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 use chrono::Utc;
 
-use crate::maa_adapter::{MaaError, MaaResult, CallbackMessage};
+use crate::maa_adapter::{MaaError, MaaResult};
+use crate::maa_adapter::types::CallbackMessage;
 
 /// Stub MAA FFI wrapper for development/testing
 pub struct MaaFFIStub {

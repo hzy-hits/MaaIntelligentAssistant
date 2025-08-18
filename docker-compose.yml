@@ -1,34 +1,66 @@
 version: '3.8'
 
 services:
-  # MAA 全栈服务（后端 + 前端）
+  # MAA 智能控制中间层服务（开发环境专用）
   maa-server:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: maa-server
+    container_name: maa-intelligent-server
     ports:
       - "${MAA_PORT:-8080}:8080"
     environment:
-      - PORT=8080
+      # 服务配置
+      - MAA_PORT=${MAA_PORT:-8080}
       - RUST_LOG=${LOG_LEVEL:-info}
-      - QWEN_API_KEY=${QWEN_API_KEY}
-      - QWEN_API_BASE=${QWEN_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - DEBUG_MODE=${DEBUG_MODE:-false}
+      
+      # AI 客户端配置
+      - AI_PROVIDER=${AI_PROVIDER:-qwen}
+      - AI_API_KEY=${AI_API_KEY}
+      - AI_BASE_URL=${AI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - AI_MODEL=${AI_MODEL:-qwen-plus-2025-04-28}
+      - AI_TEMPERATURE=${AI_TEMPERATURE:-0.7}
+      - AI_MAX_TOKENS=${AI_MAX_TOKENS:-4000}
+      
+      # MAA 配置（开发环境Stub模式）
+      - MAA_BACKEND_MODE=stub
+      - MAA_VERBOSE=${MAA_VERBOSE:-true}
+      
+      # Web UI 配置
+      - WEBUI_PORT=3000
+      - WEBUI_NAME=${WEBUI_NAME:-MAA智能助手}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-maa-secret-key-change-in-production}
+      
+      # 网络代理
       - HTTP_PROXY=${HTTP_PROXY}
       - HTTPS_PROXY=${HTTPS_PROXY}
     volumes:
       - maa-data:/app/data
+      - maa-logs:/app/logs
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 20s
+    labels:
+      - "com.docker.compose.project=maa-intelligent-server"
+      - "com.docker.compose.service=maa-server"
 
 volumes:
   maa-data:
     driver: local
+    labels:
+      - "com.docker.compose.project=maa-intelligent-server"
+  maa-logs:
+    driver: local
+    labels:
+      - "com.docker.compose.project=maa-intelligent-server"
 
 networks:
   default:
     name: maa-network
+    labels:
+      - "com.docker.compose.project=maa-intelligent-server"

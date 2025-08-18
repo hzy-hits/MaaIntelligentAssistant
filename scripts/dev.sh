@@ -12,9 +12,9 @@ if [ ! -f "Cargo.toml" ]; then
     exit 1
 fi
 
-# 启动后端（开发模式）
-echo "启动后端（开发模式）..."
-RUST_LOG=debug cargo run &
+# 启动后端（开发模式 - Stub模式）
+echo "启动后端（Stub开发模式）..."
+RUST_LOG=debug cargo run --bin maa-server &
 BACKEND_PID=$!
 
 # 等待后端启动

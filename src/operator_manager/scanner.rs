@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
-use crate::maa_adapter::{MaaBackend, TaskParams};
+use crate::maa_adapter::TaskParams;
 use crate::operator_manager::{
     types::{Operator, ModuleInfo, ScanResult},
     errors::{OperatorError, OperatorResult},

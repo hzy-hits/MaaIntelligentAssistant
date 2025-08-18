@@ -1,50 +1,15 @@
-//! MAA Adapter Module
+//! MAA Adapter Module - Simplified
 //!
-//! This module provides a safe, async wrapper around the MAA (MaaAssistantArknights) FFI bindings.
-//! It handles the complexity of FFI callbacks, resource management, and provides a clean async interface
-//! for interacting with MAA functionality.
-//!
-//! # Architecture
-//!
-//! - **Core**: Main MaaAdapter implementation with thread-safe operations
-//! - **Types**: Data structures for MAA operations and configurations
-//! - **Errors**: Unified error handling for all MAA operations
-//! - **Callbacks**: FFI callback handling with tokio channel integration
-//!
-//! # Example
-//!
-//! ```rust
-//! use maa_intelligent_server::maa_adapter::{MaaAdapter, MaaAdapterTrait, MaaConfig};
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let config = MaaConfig::default();
-//!     let mut adapter = MaaAdapter::new(config).await?;
-//!     
-//!     adapter.connect("emulator").await?;
-//!     let screenshot = adapter.screenshot().await?;
-//!     
-//!     Ok(())
-//! }
-//! ```
+//! This module provides essential types and error handling for MAA operations.
+//! The actual MAA functionality has been moved to maa_core module for simplicity.
 
 pub mod types;
 pub mod errors;
-pub mod callbacks;
 pub mod ffi_stub;
-pub mod ffi_real;
-pub mod backend;
-pub mod integration_test;
 
-// Re-export public API
-pub use types::{
-    MaaConfig, MaaStatus, MaaTask, MaaTaskType, MaaController,
-    MaaResource, MaaCallback, TaskParams, DeviceInfo
-};
+// Re-export essential types only
+pub use types::{MaaConfig, MaaStatus, TaskParams};
 pub use errors::{MaaError, MaaResult};
-pub use callbacks::CallbackHandler;
-pub use types::CallbackMessage;
-pub use backend::{MaaBackend, BackendConfig};
 
 // Constants for MAA operations
 pub const DEFAULT_TIMEOUT_MS: u64 = 30000;

@@ -62,7 +62,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::maa_adapter::MaaBackend;
+// MaaBackend was removed, using MaaCore instead
 
 // Re-export public types
 pub use types::{

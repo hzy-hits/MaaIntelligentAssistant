@@ -6,7 +6,7 @@ use std::sync::Arc;
 use axum::{
     extract::State,
     http::StatusCode,
-    response::{Json, IntoResponse},
+    response::Json,
     routing::{get, post},
     Router,
 };
@@ -17,7 +17,7 @@ use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::{info, error};
 
-use crate::mcp_tools::{MaaFunctionServer, EnhancedMaaFunctionServer, FunctionDefinition, FunctionCall, FunctionResponse};
+use crate::function_tools::{EnhancedMaaFunctionServer, FunctionDefinition, FunctionCall, FunctionResponse};
 use crate::ai_client::client::AiClientTrait;
 
 /// Function Calling服务器接口trait
@@ -28,18 +28,6 @@ pub trait FunctionCallingServerTrait: Send + Sync {
     
     /// 执行函数调用
     async fn execute_function(&self, call: FunctionCall) -> FunctionResponse;
-}
-
-/// 为基础MaaFunctionServer实现trait
-#[async_trait]
-impl FunctionCallingServerTrait for MaaFunctionServer {
-    fn get_function_definitions(&self) -> Vec<FunctionDefinition> {
-        self.get_function_definitions()
-    }
-    
-    async fn execute_function(&self, call: FunctionCall) -> FunctionResponse {
-        self.execute_function(call).await
-    }
 }
 
 /// 为增强EnhancedMaaFunctionServer实现trait

@@ -13,9 +13,9 @@ if [ ! -f "Cargo.toml" ]; then
     exit 1
 fi
 
-# 启动后端服务
-echo "启动 MAA 后端服务..."
-cargo run &
+# 启动后端服务（使用单例服务器）
+echo "启动 MAA 后端服务（单例模式）..."
+cargo run --bin maa-server &
 BACKEND_PID=$!
 
 # 等待后端启动

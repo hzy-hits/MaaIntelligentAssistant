@@ -1,0 +1,90 @@
+# MAA 设备连接配置文件
+# 消除硬编码配置，支持多种设备类型
+
+[default]
+# 默认连接配置
+preset = "adb"
+timeout_ms = 30000
+client_type = "official"
+
+# 预定义设备配置
+[devices.playcover_official]
+name = "PlayCover 官服"
+preset = "play_cover"
+client_type = "official"
+address = "127.0.0.1:1717"
+touch_mode = "mac_play_tools"
+config = "CompatMac"
+
+[devices.playcover_en]
+name = "PlayCover 英服"
+preset = "play_cover"
+client_type = "yostar_en"
+address = "127.0.0.1:1717"
+touch_mode = "mac_play_tools"
+config = "CompatMac"
+
+[devices.mumu_pro]
+name = "MuMu Pro 模拟器"
+preset = "mumu_pro"
+adb_path = "/Applications/MuMuPlayer.app/Contents/MacOS/MuMuEmulator.app/Contents/MacOS/tools/adb"
+address = "127.0.0.1:16384"
+touch_mode = "adb"
+config = "CompatMac"
+
+[devices.waydroid]
+name = "Waydroid (Linux)"
+preset = "waydroid"
+address = "127.0.0.1:5555"
+touch_mode = "adb"
+
+[devices.generic_emulator]
+name = "通用 Android 模拟器"
+preset = "adb"
+address = "127.0.0.1:5555"
+touch_mode = "adb"
+
+[devices.physical_device]
+name = "Android 真机"
+preset = "adb"
+# address 留空，自动检测 adb devices
+touch_mode = "adb"
+
+# 高级配置示例
+[devices.custom_bluestacks]
+name = "BlueStacks 模拟器"
+preset = "custom"
+adb_path = "/Applications/BlueStacks.app/Contents/MacOS/adb"
+address = "127.0.0.1:5555"
+touch_mode = "adb"
+extra_config = { "screen_cap_mode" = "RawByNetcat", "input_mode" = "Adb" }
+
+# 连接预设的详细配置
+[presets.adb]
+description = "标准 ADB 连接"
+default_adb_path = "adb"
+auto_detect_device = true
+supported_touch_modes = ["adb", "mini_touch", "maa_touch"]
+
+[presets.play_cover]
+description = "macOS PlayCover (iOS 应用)"
+default_adb_path = ""
+default_address = "127.0.0.1:1717"
+default_touch_mode = "mac_play_tools"
+default_config = "CompatMac"
+auto_detect_device = false
+requires_app_launch = true
+
+[presets.mumu_pro]
+description = "MuMu Pro 模拟器"
+default_adb_path = "/Applications/MuMuPlayer.app/Contents/MacOS/MuMuEmulator.app/Contents/MacOS/tools/adb"
+default_address = "127.0.0.1:16384"
+default_touch_mode = "adb"
+default_config = "CompatMac"
+
+[presets.waydroid]
+description = "Waydroid Android 容器"
+default_adb_path = "adb"
+default_address = "127.0.0.1:5555"
+default_touch_mode = "adb"
+requires_session_start = true
