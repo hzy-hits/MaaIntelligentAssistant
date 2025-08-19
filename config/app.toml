@@ -1,0 +1,134 @@
+# MAA 智能控制中间层 - 应用配置
+# 所有硬编码配置的统一管理文件
+
+[server]
+default_port = "8080"
+default_host = "0.0.0.0"
+health_check_path = "/health"
+tools_path = "/tools"
+call_path = "/call"
+status_path = "/status"
+
+[device]
+playcover_address = "127.0.0.1:1717"
+android_emulator_address = "127.0.0.1:5555"
+touch_mode_playcover = "MacPlayTools"
+connection_timeout_ms = 10000
+retry_attempts = 3
+
+[maa]
+# 默认路径 (macOS)
+default_app_path = "/Applications/MAA.app"
+default_core_lib_path = "/Applications/MAA.app/Contents/Frameworks/libMaaCore.dylib"
+default_resource_path = "/Applications/MAA.app/Contents/Resources"
+default_adb_path = "/Applications/MAA.app/Contents/MacOS/adb"
+
+# 备用路径
+fallback_lib_paths = [
+    "/Applications/MAA.app/Contents/Frameworks/libMaaCore.dylib",
+    "/Users/ivena/Library/Application Support/com.loong.maa/lib/libMaaCore.dylib"
+]
+
+fallback_resource_paths = [
+    "/Applications/MAA.app/Contents/Resources",
+    "/Users/ivena/Desktop/Fairy/maa/maa-remote-server/maa-official/resource"
+]
+
+# 运行模式
+stub_version = "stub"
+backend_mode_real = "real"
+backend_mode_stub = "stub"
+
+[client]
+default_client = "Official"
+supported_clients = [
+    "Official",
+    "Bilibili", 
+    "txwy",
+    "YoStarEN",
+    "YoStarJP", 
+    "YoStarKR"
+]
+
+[stages]
+common_stages = ["1-7", "CE-5", "CA-5", "AP-5"]
+material_stages = ["CE-5", "CA-5", "AP-5", "SK-5"]
+example_stages = ["1-7", "CE-5", "龙门币本", "狗粮", "H6-4"]
+
+[logging]
+default_level = "info"
+levels = ["error", "warn", "info", "debug", "trace"]
+debug_mode_level = "debug"
+production_level = "warn"
+
+[ai]
+default_provider = "qwen"
+supported_providers = ["qwen", "openai", "claude", "kimi", "ollama"]
+default_qwen_model = "qwen-plus-2025-04-28"
+default_openai_model = "gpt-4"
+qwen_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+openai_base_url = "https://api.openai.com/v1"
+
+[webui]
+default_port = "3000"
+default_name = "MAA智能助手"
+default_secret_key = "change-this-in-production"
+
+[performance]
+task_queue_buffer_size = 1000
+response_timeout_ms = 30000
+worker_heartbeat_ms = 1000
+connection_pool_size = 10
+max_concurrent_requests = 100
+
+[messages]
+success = "Operation completed successfully"
+failure = "Operation failed"
+timeout = "Operation timed out"
+connection_error = "Connection error"
+invalid_request = "Invalid request"
+system_error = "System error"
+
+[status_codes]
+success = 0
+failure = -1
+timeout = -2
+connection_error = -3
+invalid_request = -4
+
+[env_keys]
+# 服务器配置
+server_port = "MAA_PORT"
+device_address = "MAA_DEVICE_ADDRESS"
+
+# MAA Core 配置
+core_lib = "MAA_CORE_LIB"
+resource_path = "MAA_RESOURCE_PATH"
+adb_path = "MAA_ADB_PATH"
+app_path = "MAA_APP_PATH"
+core_dir = "MAA_CORE_DIR"
+dyld_library_path = "DYLD_LIBRARY_PATH"
+
+# 运行模式
+backend_mode = "MAA_BACKEND_MODE"
+verbose = "MAA_VERBOSE"
+force_stub = "MAA_FORCE_STUB"
+
+# AI 配置
+ai_provider = "AI_PROVIDER"
+ai_api_key = "AI_API_KEY"
+ai_base_url = "AI_BASE_URL"
+ai_model = "AI_MODEL"
+
+# Web UI
+webui_port = "WEBUI_PORT"
+webui_name = "WEBUI_NAME"
+webui_secret = "WEBUI_SECRET_KEY"
+
+# 日志
+debug_mode = "DEBUG_MODE"
+log_level = "LOG_LEVEL"
+
+# 代理
+http_proxy = "HTTP_PROXY"
+https_proxy = "HTTPS_PROXY"

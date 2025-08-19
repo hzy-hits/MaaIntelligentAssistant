@@ -6,7 +6,9 @@ use chrono::Utc;
 use serde_json::{json, Value};
 use tracing::{debug, info, warn};
 
-use super::types::{FunctionCall, FunctionDefinition, FunctionResponse};
+use super::types::{FunctionCall, FunctionDefinition, FunctionResponse, MaaError};
+use super::queue_client::MaaQueueClient;
+use crate::maa_core::MaaTaskSender;
 
 // 导入所有功能模块
 use super::advanced_automation::*;
@@ -16,17 +18,18 @@ use super::system_features::*;
 
 /// 增强的MAA Function Calling服务器
 ///
-/// 重构后的简化架构：直接调用MaaCore，无复杂抽象层
+/// 重构后的任务队列架构：通过消息队列与MAA工作线程通信
 #[derive(Clone)]
 pub struct EnhancedMaaFunctionServer {
-    // 简化：直接使用MaaCore单例，不需要字段
+    queue_client: MaaQueueClient,
 }
 
 impl EnhancedMaaFunctionServer {
     /// 创建新的Function Calling服务器
-    pub fn new() -> Self {
+    pub fn new(task_sender: MaaTaskSender) -> Self {
         info!("🚀 创建增强MAA Function Calling服务器");
-        Self {}
+        let queue_client = MaaQueueClient::new(task_sender);
+        Self { queue_client }
     }
 
     /// 获取所有Function Calling工具定义
@@ -65,12 +68,12 @@ impl EnhancedMaaFunctionServer {
     pub async fn execute_function(&self, call: FunctionCall) -> FunctionResponse {
         debug!("🎯 执行Function Call: {}", call.name);
 
-        let result = match call.name.as_str() {
+        match call.name.as_str() {
             // 核心游戏功能
-            "maa_startup" => handle_startup(call.arguments).await,
-            "maa_combat_enhanced" => handle_combat_enhanced(call.arguments).await,
-            "maa_recruit_enhanced" => handle_recruit_enhanced(call.arguments).await,
-            "maa_infrastructure_enhanced" => handle_infrastructure_enhanced(call.arguments).await,
+            "maa_startup" => handle_startup(call.arguments, &self.queue_client).await,
+            "maa_combat_enhanced" => handle_combat_enhanced(call.arguments, &self.queue_client).await,
+            "maa_recruit_enhanced" => handle_recruit_enhanced(call.arguments, &self.queue_client).await,
+            "maa_infrastructure_enhanced" => handle_infrastructure_enhanced(call.arguments, &self.queue_client).await,
 
             // 高级自动化
             "maa_roguelike_enhanced" => handle_roguelike_enhanced(call.arguments).await,
@@ -92,28 +95,11 @@ impl EnhancedMaaFunctionServer {
 
             _ => {
                 warn!("❌ 未知的Function Call: {}", call.name);
-                Err(format!("未知的函数调用: {}", call.name))
-            }
-        };
-
-        match result {
-            Ok(value) => {
-                debug!("✅ Function Call 成功: {}", call.name);
-                FunctionResponse {
-                    success: true,
-                    result: Some(value),
-                    error: None,
-                    timestamp: Utc::now(),
-                }
-            }
-            Err(error) => {
-                warn!("❌ Function Call 失败: {} - {}", call.name, error);
-                FunctionResponse {
-                    success: false,
-                    result: None,
-                    error: Some(error),
-                    timestamp: Utc::now(),
-                }
+                let error = MaaError::parameter_error(
+                    &format!("未知的函数调用: {}", call.name),
+                    Some("请检查函数名称是否正确")
+                );
+                FunctionResponse::error(&call.name, error)
             }
         }
     }
@@ -138,9 +124,9 @@ impl EnhancedMaaFunctionServer {
 }
 
 /// 创建增强Function Calling服务器实例
-pub fn create_enhanced_function_server() -> EnhancedMaaFunctionServer {
+pub fn create_enhanced_function_server(task_sender: MaaTaskSender) -> EnhancedMaaFunctionServer {
     info!("🎯 创建增强MAA Function Calling服务器实例");
-    EnhancedMaaFunctionServer::new()
+    EnhancedMaaFunctionServer::new(task_sender)
 }
 
 #[cfg(test)]

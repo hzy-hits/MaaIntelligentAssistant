@@ -12,7 +12,7 @@ pub mod function_calling_server;
 pub mod copilot_matcher;
 
 // 导出核心类型
-pub use config::Config;
+pub use config::AppConfig;
 pub use ai_client::{
     AiClient, AiClientTrait, AiClientConfig, ProviderConfig, AiProvider, AiProviderExt,
     AiError, AiResult, ChatMessage, Tool, FunctionCall, StreamEvent

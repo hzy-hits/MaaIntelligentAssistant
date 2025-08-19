@@ -9,8 +9,9 @@
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
-use crate::maa_core::get_maa_status;
-use super::types::FunctionDefinition;
+use crate::maa_core::{execute_closedown, execute_custom_task, execute_video_recognition, execute_system_management};
+use super::types::{FunctionDefinition, FunctionResponse, MaaError};
+use std::time::Instant;
 
 /// 创建关闭游戏工具定义
 pub fn create_closedown_definition() -> FunctionDefinition {
@@ -49,7 +50,8 @@ pub fn create_closedown_definition() -> FunctionDefinition {
 }
 
 /// 处理关闭游戏任务
-pub async fn handle_closedown(args: Value) -> Result<Value, String> {
+pub async fn handle_closedown(args: Value) -> FunctionResponse {
+    let start_time = Instant::now();
     info!("🔴 处理游戏关闭任务");
     
     let enable = args.get("enable").and_then(|v| v.as_bool()).unwrap_or(true);
@@ -58,52 +60,38 @@ pub async fn handle_closedown(args: Value) -> Result<Value, String> {
     let timeout = args.get("timeout").and_then(|v| v.as_i64()).unwrap_or(30) as i32;
 
     if !enable {
-        return Ok(json!({
+        let response_data = json!({
             "status": "success",
             "message": "关闭功能已禁用",
             "enabled": false
-        }));
+        });
+        return FunctionResponse::success("maa_closedown", response_data)
+            .with_execution_time(start_time.elapsed().as_millis() as u64);
     }
 
     debug!("关闭参数: enable={}, force={}, save_state={}, timeout={}", 
            enable, force, save_state, timeout);
 
-    // 检查当前状态
-    match get_maa_status().await {
-        Ok(status) => {
-            // 实现关闭逻辑
-            if save_state {
-                info!("💾 保存当前状态");
-            }
-
-            if force {
-                info!("⚡ 强制关闭游戏");
-            } else {
-                info!("🚪 正常关闭游戏"); 
-            }
-
-            // 模拟关闭过程
-            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-
-            info!("✅ 游戏关闭任务完成");
-            Ok(json!({
+    match execute_closedown().await {
+        Ok(result) => {
+            info!("游戏关闭任务完成");
+            let response_data = json!({
                 "status": "success",
                 "message": "游戏已安全关闭",
                 "enabled": enable,
                 "force": force,
                 "save_state": save_state,
-                "previous_status": status,
-                "details": {
-                    "task_type": "closedown",
-                    "duration_ms": 1000,
-                    "status": "completed"
-                }
-            }))
+                "timeout": timeout,
+                "details": result
+            });
+            FunctionResponse::success("maa_closedown", response_data)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
         },
         Err(e) => {
-            let error_msg = format!("关闭任务失败: {}", e);
-            debug!("❌ {}", error_msg);
-            Err(error_msg)
+            let error = MaaError::maa_core_error(&format!("关闭任务失败: {}", e), Some("检查游戏状态和连接"));
+            debug!("关闭任务失败: {}", e);
+            FunctionResponse::error("maa_closedown", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
     }
 }
@@ -149,12 +137,18 @@ pub fn create_custom_task_definition() -> FunctionDefinition {
 }
 
 /// 处理自定义任务
-pub async fn handle_custom_task(args: Value) -> Result<Value, String> {
-    info!("🛠️ 处理自定义任务");
+pub async fn handle_custom_task(args: Value) -> FunctionResponse {
+    let start_time = Instant::now();
+    info!("处理自定义任务");
     
-    let task_name = args.get("task_name")
-        .and_then(|v| v.as_str())
-        .ok_or("缺少任务名称参数")?;
+    let task_name = match args.get("task_name").and_then(|v| v.as_str()) {
+        Some(name) => name,
+        None => {
+            let error = MaaError::validation_error("缺少必要参数: task_name", Some("请提供有效的任务名称"));
+            return FunctionResponse::error("maa_custom_task", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64);
+        }
+    };
         
     let entry = args.get("entry")
         .and_then(|v| v.as_str())
@@ -167,24 +161,27 @@ pub async fn handle_custom_task(args: Value) -> Result<Value, String> {
     debug!("自定义任务参数: task_name={}, entry={}, timeout={}", 
            task_name, entry, timeout);
 
-    // 实现自定义任务逻辑
-    let result = json!({
-        "task_type": "custom_task",
-        "task_name": task_name,
-        "entry": entry,
-        "status": "completed",
-        "execution_time_ms": 2000
-    });
-
-    info!("✅ 自定义任务完成: {}", task_name);
-    Ok(json!({
-        "status": "success",
-        "message": format!("自定义任务 {} 执行完成", task_name),
-        "task_name": task_name,
-        "entry": entry,
-        "timeout": timeout,
-        "details": result
-    }))
+    match execute_custom_task(task_name, "{}").await {
+        Ok(result) => {
+            info!("自定义任务完成: {}", task_name);
+            let response_data = json!({
+                "status": "success",
+                "message": format!("自定义任务 {} 执行完成", task_name),
+                "task_name": task_name,
+                "entry": entry,
+                "timeout": timeout,
+                "details": result
+            });
+            FunctionResponse::success("maa_custom_task", response_data)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        },
+        Err(e) => {
+            let error = MaaError::maa_core_error(&format!("自定义任务失败: {}", e), Some("检查任务名称和参数"));
+            debug!("自定义任务失败: {}", e);
+            FunctionResponse::error("maa_custom_task", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        }
+    }
 }
 
 /// 创建视频识别工具定义
@@ -230,12 +227,18 @@ pub fn create_video_recognition_definition() -> FunctionDefinition {
 }
 
 /// 处理视频识别任务
-pub async fn handle_video_recognition(args: Value) -> Result<Value, String> {
+pub async fn handle_video_recognition(args: Value) -> FunctionResponse {
+    let start_time = Instant::now();
     info!("🎥 处理视频识别任务");
     
-    let video_path = args.get("video_path")
-        .and_then(|v| v.as_str())
-        .ok_or("缺少视频路径参数")?;
+    let video_path = match args.get("video_path").and_then(|v| v.as_str()) {
+        Some(path) => path,
+        None => {
+            let error = MaaError::validation_error("缺少必要参数: video_path", Some("请提供有效的视频文件路径"));
+            return FunctionResponse::error("maa_video_recognition", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64);
+        }
+    };
         
     let recognition_type = args.get("recognition_type")
         .and_then(|v| v.as_str())
@@ -244,30 +247,35 @@ pub async fn handle_video_recognition(args: Value) -> Result<Value, String> {
     let enable_ocr = args.get("enable_ocr")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
+        
+    let _frame_interval = args.get("frame_interval")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(1000) as i32;
 
     debug!("视频识别参数: video_path={}, recognition_type={}, enable_ocr={}", 
            video_path, recognition_type, enable_ocr);
 
-    // 实现视频识别逻辑
-    let result = json!({
-        "task_type": "video_recognition",
-        "video_path": video_path,
-        "recognition_type": recognition_type,
-        "frames_processed": 0,
-        "recognition_results": [],
-        "ocr_results": [],
-        "status": "completed"
-    });
-
-    info!("✅ 视频识别任务完成: {}", video_path);
-    Ok(json!({
-        "status": "success",
-        "message": format!("视频 {} 识别完成", video_path),
-        "video_path": video_path,
-        "recognition_type": recognition_type,
-        "enable_ocr": enable_ocr,
-        "details": result
-    }))
+    match execute_video_recognition(&video_path).await {
+        Ok(result) => {
+            info!("视频识别任务完成: {}", video_path);
+            let response_data = json!({
+                "status": "success",
+                "message": format!("视频 {} 识别完成", video_path),
+                "video_path": video_path,
+                "recognition_type": recognition_type,
+                "enable_ocr": enable_ocr,
+                "details": result
+            });
+            FunctionResponse::success("maa_video_recognition", response_data)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        },
+        Err(e) => {
+            let error = MaaError::maa_core_error(&format!("视频识别失败: {}", e), Some("检查视频文件路径和格式"));
+            debug!("视频识别失败: {}", e);
+            FunctionResponse::error("maa_video_recognition", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        }
+    }
 }
 
 /// 创建系统管理工具定义
@@ -306,7 +314,8 @@ pub fn create_system_management_definition() -> FunctionDefinition {
 }
 
 /// 处理系统管理任务
-pub async fn handle_system_management(args: Value) -> Result<Value, String> {
+pub async fn handle_system_management(args: Value) -> FunctionResponse {
+    let start_time = Instant::now();
     info!("⚙️ 处理系统管理任务");
     
     let action = args.get("action")
@@ -324,57 +333,31 @@ pub async fn handle_system_management(args: Value) -> Result<Value, String> {
     debug!("系统管理参数: action={}, component={}, force={}", 
            action, component, force);
 
-    let result = match action {
-        "status" => {
-            match get_maa_status().await {
-                Ok(status) => json!({
-                    "action": "status",
-                    "component": component,
-                    "system_status": status,
-                    "health": "healthy",
-                    "uptime": "unknown"
-                }),
-                Err(e) => return Err(format!("获取系统状态失败: {}", e))
-            }
-        },
-        "restart" => {
-            if force {
-                info!("🔄 强制重启系统组件: {}", component);
-            } else {
-                info!("🔄 正常重启系统组件: {}", component);
-            }
-            json!({
-                "action": "restart",
-                "component": component,
-                "force": force,
-                "status": "completed"
-            })
-        },
-        "clean" => {
-            info!("🧹 清理系统组件: {}", component);
-            json!({
-                "action": "clean",
-                "component": component,
-                "cleaned_items": [],
-                "freed_space_mb": 0
-            })
-        },
-        _ => {
-            json!({
-                "action": action,
-                "component": component,
-                "status": "not_implemented"
-            })
-        }
-    };
-
-    info!("✅ 系统管理任务完成: {} -> {}", action, component);
-    Ok(json!({
-        "status": "success",
-        "message": format!("系统管理操作 {} 完成", action),
+    let _params = json!({
         "action": action,
         "component": component,
-        "force": force,
-        "details": result
-    }))
+        "force": force
+    });
+
+    match execute_system_management(&action).await {
+        Ok(result) => {
+            info!("系统管理任务完成: {} -> {}", action, component);
+            let response_data = json!({
+                "status": "success",
+                "message": format!("系统管理操作 {} 完成", action),
+                "action": action,
+                "component": component,
+                "force": force,
+                "details": result
+            });
+            FunctionResponse::success("maa_system_management", response_data)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        },
+        Err(e) => {
+            let error = MaaError::maa_core_error(&format!("系统管理操作失败: {}", e), Some("检查系统状态和权限"));
+            debug!("系统管理操作失败: {}", e);
+            FunctionResponse::error("maa_system_management", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        }
+    }
 }

@@ -4,43 +4,144 @@
 //! 每个线程都有独立的 MAA Core 实例，简化并发访问
 
 use std::path::PathBuf;
-use std::cell::RefCell;
-use tracing::{info, debug, error, warn};
+use std::os::raw::{c_char, c_void};
+use std::ffi::CStr;
+use tracing::{info, debug, warn};
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
+use serde_json;
 use anyhow::{Result, anyhow};
+use crate::config::CONFIG;
 
 // 导出子模块
 pub mod basic_ops;
+pub mod task_queue;
+pub mod worker;
 
 // 重新导出基础操作
 pub use basic_ops::{
     connect_device, execute_fight, get_maa_status, take_screenshot, perform_click,
     smart_fight, execute_recruit, execute_infrastructure, execute_roguelike,
-    execute_copilot, execute_startup, execute_awards
+    execute_copilot, execute_startup, execute_awards, execute_credit_store,
+    execute_depot_management, execute_operator_box, execute_sss_copilot,
+    execute_reclamation, execute_closedown, execute_custom_task,
+    execute_video_recognition, execute_system_management
 };
 
-/// 线程本地的 MAA Core 单例
-/// 由于 maa_sys::Assistant 不是 Send，我们使用线程本地存储
-thread_local! {
-    static MAA_CORE: RefCell<Option<MaaCore>> = RefCell::new(None);
+/// MAA 回调函数 - 处理任务完成事件 (遵循官方协议)
+unsafe extern "C" fn maa_callback(
+    msg: i32,
+    details_raw: *const c_char,
+    _arg: *mut c_void,
+) {
+    // 安全地转换C字符串
+    let details_str = if details_raw.is_null() {
+        "{}".to_string()
+    } else {
+        CStr::from_ptr(details_raw)
+            .to_string_lossy()
+            .to_string()
+    };
+    
+    // 解析JSON详情
+    let details_json: serde_json::Value = match serde_json::from_str(&details_str) {
+        Ok(json) => json,
+        Err(_) => {
+            warn!("📋 MAA回调JSON解析失败: {}", details_str);
+            return;
+        }
+    };
+    
+    // 记录MAA事件
+    info!("📋 MAA回调事件: {} | JSON: {}", msg, details_str);
+    
+    // 处理重要事件 - 使用官方协议的消息代码
+    match msg {
+        // Global Info
+        0 => {
+            warn!("💥 MAA内部错误: {}", details_str);
+        },
+        1 => {
+            warn!("❌ MAA初始化失败: {}", details_str);
+        },
+        2 => {
+            // ConnectionInfo - 关键的连接事件处理
+            if let Some(what) = details_json.get("what").and_then(|v| v.as_str()) {
+                match what {
+                    "ConnectFailed" => {
+                        let why = details_json.get("why").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        warn!("🔌 连接失败: {} - 详情: {}", why, details_str);
+                        // 不要因为连接失败就退出，这是正常的重试流程
+                    },
+                    "Connected" => {
+                        info!("🔌 设备连接成功");
+                    },
+                    "UuidGot" => {
+                        info!("🔌 获取设备UUID成功");
+                    },
+                    _ => {
+                        debug!("🔌 连接信息: {} - {}", what, details_str);
+                    }
+                }
+            }
+        },
+        3 => {
+            info!("✅ 全部任务完成");
+        },
+        4 => {
+            // AsyncCallInfo - 异步调用信息
+            debug!("📡 异步调用信息: {}", details_str);
+        },
+        5 => {
+            info!("🗑️ MAA实例已销毁");
+        },
+        
+        // TaskChain Info
+        10000 => {
+            warn!("❌ 任务链错误: {}", details_str);
+        },
+        10001 => {
+            info!("🚀 任务链开始: {}", details_str);
+        },
+        10002 => {
+            info!("✅ 任务链完成: {}", details_str);
+        },
+        10003 => {
+            debug!("📡 任务链额外信息: {}", details_str);
+        },
+        10004 => {
+            warn!("⏹️ 任务链手动停止: {}", details_str);
+        },
+        
+        // SubTask Info
+        20000 => {
+            warn!("❌ 子任务错误: {}", details_str);
+        },
+        20001 => {
+            debug!("🔧 子任务开始: {}", details_str);
+        },
+        20002 => {
+            debug!("✅ 子任务完成: {}", details_str);
+        },
+        20003 => {
+            debug!("📡 子任务额外信息: {}", details_str);
+        },
+        20004 => {
+            debug!("⏹️ 子任务手动停止: {}", details_str);
+        },
+        
+        _ => {
+            debug!("📡 未知MAA事件代码: {} - {}", msg, details_str);
+        }
+    }
 }
 
-/// 获取或创建当前线程的 MAA Core 实例
-pub fn with_maa_core<F, R>(f: F) -> Result<R>
-where
-    F: FnOnce(&mut MaaCore) -> Result<R>,
-{
-    MAA_CORE.with(|core_ref| {
-        let mut core_opt = core_ref.borrow_mut();
-        if core_opt.is_none() {
-            debug!("创建新的线程本地MAA Core实例");
-            *core_opt = Some(MaaCore::new());
-        }
-        let core = core_opt.as_mut().unwrap();
-        f(core)
-    })
-}
+// 移除了 thread_local 实现
+// 现在所有 MAA 操作都通过任务队列路由到专用的工作线程
+
+// 重新导出任务队列相关类型
+pub use task_queue::{MaaTask, MaaTaskSender, MaaTaskReceiver, create_maa_task_channel};
+pub use worker::MaaWorker;
 
 /// MAA 状态信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,8 +187,6 @@ pub struct MaaCore {
     /// 资源路径
     resource_path: Option<String>,
     
-    /// 活跃任务ID追踪
-    task_counter: i32,
 }
 
 impl MaaCore {
@@ -99,7 +198,6 @@ impl MaaCore {
             assistant: None,
             status: MaaStatus::default(),
             resource_path: None,
-            task_counter: 0,
         }
     }
     
@@ -128,8 +226,16 @@ impl MaaCore {
         maa_sys::Assistant::load_resource(resource_path.as_str())
             .map_err(|e| anyhow!("加载 MAA 资源失败: {:?}", e))?;
         
-        // 5. 创建 Assistant 实例
-        let assistant = maa_sys::Assistant::new(None, None);
+        // 5. 创建 Assistant 实例 - 带回调处理
+        let assistant = maa_sys::Assistant::new(Some(maa_callback), None);
+        
+        // 5.1. 为PlayCover预设TouchMode（必须在连接前设置）
+        info!("预设TouchMode为{}以支持PlayCover", CONFIG.device.touch_mode_playcover);
+        if let Err(e) = assistant.set_instance_option(maa_sys::InstanceOptionKey::TouchMode, CONFIG.device.touch_mode_playcover.as_str()) {
+            warn!("预设TouchMode失败，继续初始化: {:?}", e);
+        } else {
+            info!("TouchMode预设为{}成功", CONFIG.device.touch_mode_playcover);
+        }
         
         // 6. 获取版本信息
         let version = self.get_version_info();
@@ -160,9 +266,9 @@ impl MaaCore {
         // 检测连接类型
         let is_playcover = address.contains("localhost:1717") || address.contains("127.0.0.1:1717");
         let (adb_path, config) = if is_playcover {
-            // PlayCover 连接
-            info!("检测到 PlayCover 连接");
-            ("", r#"{"touch_mode": "MacPlayTools"}"#)
+            // PlayCover 连接 - TouchMode已在初始化时设置
+            info!("检测到 PlayCover 连接，使用预设的MacPlayTools配置");
+            ("", "{}")
         } else {
             // ADB 连接
             info!("使用 ADB 连接");
@@ -171,7 +277,13 @@ impl MaaCore {
         
         // 执行异步连接
         let connection_id = assistant.async_connect(adb_path, address, config, true)
-            .map_err(|e| anyhow!("连接失败: {:?}", e))?;
+            .map_err(|e| {
+                if is_playcover {
+                    anyhow!("PlayCover连接失败: {:?}\n请检查:\n1. PlayCover是否已安装明日方舟\n2. MaaTools是否已启用\n3. 游戏是否正在运行", e)
+                } else {
+                    anyhow!("ADB连接失败: {:?}\n请检查设备连接和ADB配置", e)
+                }
+            })?;
         
         // 更新状态
         self.status.connected = true;
@@ -193,16 +305,26 @@ impl MaaCore {
         let task_id = assistant.append_task(task_type, params)
             .map_err(|e| anyhow!("创建任务失败: {:?}", e))?;
         
-        // 启动任务执行
-        assistant.start()
-            .map_err(|e| anyhow!("启动任务失败: {:?}", e))?;
+        // 异步启动任务执行
+        info!("任务已添加到队列，任务ID: {}", task_id);
+        
+        // 启动任务执行（非阻塞）
+        match assistant.start() {
+            Ok(_) => {
+                info!("任务执行启动成功，任务ID: {}", task_id);
+            },
+            Err(e) => {
+                warn!("任务启动失败但继续: {:?}", e);
+                // 不直接返回错误，因为任务可能已经在队列中
+            }
+        }
         
         // 更新状态
         self.status.active_tasks.push(task_id);
         self.status.running = true;
         self.status.last_updated = Utc::now();
         
-        info!("任务执行开始，任务ID: {}", task_id);
+        info!("任务已提交，任务ID: {}", task_id);
         Ok(task_id)
     }
     
@@ -275,14 +397,9 @@ impl MaaCore {
             }
         }
         
-        // 已知路径列表（基于之前的发现）
+        // 从配置文件获取备用路径
         #[cfg(target_os = "macos")]
-        let known_paths = vec![
-            "/Applications/MAA.app/Contents/Frameworks/libMaaCore.dylib",
-            "/Users/ivena/Library/Application Support/com.loong.maa/lib/libMaaCore.dylib",
-            "/usr/local/lib/libMaaCore.dylib",
-            "./libMaaCore.dylib",
-        ];
+        let known_paths = CONFIG.maa.fallback_lib_paths.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
         
         #[cfg(target_os = "linux")]
         let known_paths = vec![
@@ -311,32 +428,27 @@ impl MaaCore {
     /// 查找资源路径
     fn find_resource_path(&self) -> Result<String> {
         // 从环境变量获取
-        if let Ok(path) = std::env::var("MAA_RESOURCE_PATH") {
+        if let Ok(path) = std::env::var(&CONFIG.env_keys.resource_path) {
+            info!("使用环境变量资源路径: {}", path);
             return Ok(path);
         }
         
-        // 使用项目中的maa-official子模块
-        let resource_paths = vec![
-            "./maa-official/resource",
-            "./resource", 
-            "../resource",
-            "/Users/ivena/Desktop/Fairy/maa/maa-remote-server/maa-official/resource",
-        ];
+        info!("未找到环境变量{}，使用备用路径", CONFIG.env_keys.resource_path);
+        
+        // 从配置文件获取备用资源路径
+        let resource_paths = &CONFIG.maa.fallback_resource_paths;
         
         for path in resource_paths {
             if PathBuf::from(path).exists() {
-                return Ok(path.to_string());
+                info!("找到备用资源路径: {}", path);
+                return Ok(path.clone());
             }
         }
         
         warn!("未找到资源文件，使用默认路径");
-        Ok("./resource".to_string())
+        Ok(CONFIG.maa.default_resource_path.clone())
     }
     
-    /// 检测是否为 PlayCover 地址
-    fn is_playcover_address(&self, address: &str) -> bool {
-        address.contains("localhost:1717") || address.contains("127.0.0.1:1717")
-    }
     
     /// 获取版本信息
     fn get_version_info(&self) -> Option<String> {
@@ -346,14 +458,33 @@ impl MaaCore {
             Err(_) => None,
         }
     }
+    
+    /// 检查是否已初始化
+    pub fn is_initialized(&self) -> bool {
+        self.status.initialized
+    }
+    
+    /// 检查是否已连接设备
+    pub fn is_connected(&self) -> bool {
+        self.status.connected
+    }
+    
+    /// 获取当前状态的只读引用
+    pub fn get_status_ref(&self) -> &MaaStatus {
+        &self.status
+    }
 }
 
 impl Drop for MaaCore {
     fn drop(&mut self) {
         if self.status.initialized {
-            info!("MAA Core 实例被销毁，清理资源");
-            if let Err(e) = self.stop() {
-                error!("清理MAA资源时出错: {}", e);
+            info!("MAA Core 实例被销毁，安全清理资源");
+            // 安全地停止任务，不传播错误
+            if let Some(assistant) = &mut self.assistant {
+                match assistant.stop() {
+                    Ok(_) => info!("MAA任务已安全停止"),
+                    Err(e) => warn!("停止MAA任务时出现警告(忽略): {:?}", e),
+                }
             }
         }
     }

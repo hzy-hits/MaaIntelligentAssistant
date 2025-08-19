@@ -9,8 +9,9 @@
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
-use crate::maa_core::{execute_roguelike, execute_copilot};
-use super::types::FunctionDefinition;
+use crate::maa_core::{execute_roguelike, execute_copilot, execute_sss_copilot, execute_reclamation};
+use super::types::{FunctionDefinition, FunctionResponse, MaaError};
+use std::time::Instant;
 
 /// 创建肉鸽增强工具定义
 pub fn create_roguelike_enhanced_definition() -> FunctionDefinition {
@@ -72,7 +73,8 @@ pub fn create_roguelike_enhanced_definition() -> FunctionDefinition {
 }
 
 /// 处理肉鸽增强任务
-pub async fn handle_roguelike_enhanced(args: Value) -> Result<Value, String> {
+pub async fn handle_roguelike_enhanced(args: Value) -> FunctionResponse {
+    let start_time = Instant::now();
     info!("🃏 处理肉鸽增强任务");
     
     let theme = args.get("theme")
@@ -93,19 +95,22 @@ pub async fn handle_roguelike_enhanced(args: Value) -> Result<Value, String> {
     match execute_roguelike(theme, mode, starts_count).await {
         Ok(result) => {
             info!("✅ 肉鸽增强任务完成");
-            Ok(json!({
+            let response_data = json!({
                 "status": "success",
                 "message": format!("肉鸽 {} 任务完成", theme),
                 "theme": theme,
                 "mode": mode,
                 "starts_count": starts_count,
                 "details": result
-            }))
+            });
+            FunctionResponse::success("maa_roguelike_enhanced", response_data)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
         },
         Err(e) => {
-            let error_msg = format!("肉鸽任务失败: {}", e);
-            debug!("❌ {}", error_msg);
-            Err(error_msg)
+            let error = MaaError::maa_core_error(&format!("肉鸽任务失败: {}", e), Some("检查肉鸽模式是否已开放，理智是否充足"));
+            debug!("❌ 肉鸽任务失败: {}", e);
+            FunctionResponse::error("maa_roguelike_enhanced", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
     }
 }
@@ -150,7 +155,8 @@ pub fn create_copilot_enhanced_definition() -> FunctionDefinition {
 }
 
 /// 处理作业增强任务
-pub async fn handle_copilot_enhanced(args: Value) -> Result<Value, String> {
+pub async fn handle_copilot_enhanced(args: Value) -> FunctionResponse {
+    let start_time = Instant::now();
     info!("📋 处理作业增强任务");
     
     let filename = args.get("filename")
@@ -168,22 +174,25 @@ pub async fn handle_copilot_enhanced(args: Value) -> Result<Value, String> {
     debug!("作业参数: filename={}, formation={}, stage_name={}", 
            filename, formation, stage_name);
 
-    match execute_copilot(filename, formation, stage_name).await {
+    match execute_copilot(filename, formation).await {
         Ok(result) => {
             info!("✅ 作业增强任务完成");
-            Ok(json!({
+            let response_data = json!({
                 "status": "success", 
                 "message": "作业任务已完成",
                 "filename": filename,
                 "stage_name": stage_name,
                 "formation": formation,
                 "details": result
-            }))
+            });
+            FunctionResponse::success("maa_copilot_enhanced", response_data)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
         },
         Err(e) => {
-            let error_msg = format!("作业任务失败: {}", e);
-            debug!("❌ {}", error_msg);
-            Err(error_msg)
+            let error = MaaError::maa_core_error(&format!("作业任务失败: {}", e), Some("检查作业文件路径和关卡名称"));
+            debug!("❌ 作业任务失败: {}", e);
+            FunctionResponse::error("maa_copilot_enhanced", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
     }
 }
@@ -225,12 +234,18 @@ pub fn create_sss_copilot_definition() -> FunctionDefinition {
 }
 
 /// 处理SSS作业任务
-pub async fn handle_sss_copilot(args: Value) -> Result<Value, String> {
+pub async fn handle_sss_copilot(args: Value) -> FunctionResponse {
+    let start_time = Instant::now();
     info!("🌟 处理SSS作业任务");
     
-    let stage_name = args.get("stage_name")
-        .and_then(|v| v.as_str())
-        .ok_or("缺少关卡名称参数")?;
+    let stage_name = match args.get("stage_name").and_then(|v| v.as_str()) {
+        Some(name) => name,
+        None => {
+            let error = MaaError::validation_error("缺少必要参数: stage_name", Some("请提供有效的关卡名称"));
+            return FunctionResponse::error("maa_sss_copilot", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64);
+        }
+    };
         
     let formation = args.get("formation")
         .and_then(|v| v.as_bool())
@@ -244,23 +259,25 @@ pub async fn handle_sss_copilot(args: Value) -> Result<Value, String> {
     debug!("SSS作业参数: stage_name={}, formation={}, loop_times={}", 
            stage_name, formation, loop_times);
 
-    // 实现SSS作业逻辑
-    match execute_copilot(&format!("sss_{}.json", stage_name), formation, stage_name).await {
+    match execute_sss_copilot(&format!("sss_{}.json", stage_name), loop_times).await {
         Ok(result) => {
             info!("✅ SSS作业任务完成: {}", stage_name);
-            Ok(json!({
+            let response_data = json!({
                 "status": "success",
                 "message": format!("SSS关卡 {} 作业完成", stage_name),
                 "stage_name": stage_name,
                 "formation": formation,
                 "loop_times": loop_times,
                 "details": result
-            }))
+            });
+            FunctionResponse::success("maa_sss_copilot", response_data)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
         },
         Err(e) => {
-            let error_msg = format!("SSS作业任务失败: {}", e);
-            debug!("❌ {}", error_msg);
-            Err(error_msg)
+            let error = MaaError::maa_core_error(&format!("SSS作业任务失败: {}", e), Some("检查SSS作业文件和关卡名称"));
+            debug!("❌ SSS作业任务失败: {}", e);
+            FunctionResponse::error("maa_sss_copilot", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
     }
 }
@@ -303,7 +320,8 @@ pub fn create_reclamation_definition() -> FunctionDefinition {
 }
 
 /// 处理生息演算任务
-pub async fn handle_reclamation(args: Value) -> Result<Value, String> {
+pub async fn handle_reclamation(args: Value) -> FunctionResponse {
+    let start_time = Instant::now();
     info!("🌱 处理生息演算任务");
     
     let theme = args.get("theme")
@@ -313,24 +331,32 @@ pub async fn handle_reclamation(args: Value) -> Result<Value, String> {
     let mode = args.get("mode") 
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as i32;
+        
+    let tool_to_craft = args.get("tool_to_craft")
+        .and_then(|v| v.as_str())
+        .map(|s| vec![s.to_string()])
+        .unwrap_or_else(Vec::new);
 
-    debug!("生息演算参数: theme={}, mode={}", theme, mode);
+    debug!("生息演算参数: theme={}, mode={}, tools={:?}", theme, mode, tool_to_craft);
 
-    // 实现生息演算逻辑
-    let result = json!({
-        "task_type": "reclamation",
-        "theme": theme,
-        "mode": mode,
-        "status": "completed",
-        "message": "生息演算任务执行完成"
-    });
-
-    info!("✅ 生息演算任务完成: {}", theme);
-    Ok(json!({
-        "status": "success",
-        "message": format!("生息演算 {} 任务完成", theme),
-        "theme": theme,
-        "mode": mode, 
-        "details": result
-    }))
+    match execute_reclamation(theme, mode).await {
+        Ok(result) => {
+            info!("✅ 生息演算任务完成: {}", theme);
+            let response_data = json!({
+                "status": "success",
+                "message": format!("生息演算 {} 任务完成", theme),
+                "theme": theme,
+                "mode": mode, 
+                "details": result
+            });
+            FunctionResponse::success("maa_reclamation", response_data)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        },
+        Err(e) => {
+            let error = MaaError::maa_core_error(&format!("生息演算任务失败: {}", e), Some("检查生息演算模式是否已开放"));
+            debug!("❌ 生息演算任务失败: {}", e);
+            FunctionResponse::error("maa_reclamation", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        }
+    }
 }

@@ -2,7 +2,12 @@
 
 ## 模块概述
 
-Function Tools 是 MAA 智能控制系统的核心功能模块，负责提供 16 个完整的 MAA Function Calling 工具。该模块实现了从复杂的单体文件（1200+行）重构为清晰的分层模块架构。
+Function Tools 是 MAA 智能控制系统的核心功能模块，提供 16 个完整的 MAA Function Calling 工具。该模块在 2025-08-18 重构后实现了：
+
+- **增强的工具描述**: 参考 maa-knowledge 添加了详细的使用场景和参数说明
+- **智能自然语言解析**: 支持更多中文游戏术语和别名
+- **统一响应格式**: 完善的错误处理和资源使用统计
+- **上下文感知**: 工具间状态共享和任务链推荐
 
 ## 架构设计
 
@@ -10,11 +15,12 @@ Function Tools 是 MAA 智能控制系统的核心功能模块，负责提供 16
 ```
 src/function_tools/
 ├── mod.rs              # 模块导出和集成
-├── types.rs            # 核心类型定义
-├── core_game.rs        # 核心游戏功能 (4个工具)
+├── types.rs            # 增强的类型定义（错误处理、响应格式、上下文）
+├── core_game.rs        # 核心游戏功能 (4个工具) - 已增强
 ├── advanced_automation.rs  # 高级自动化 (4个工具)
 ├── support_features.rs     # 辅助功能 (4个工具)
 ├── system_features.rs      # 系统功能 (4个工具)
+├── context.rs          # 上下文管理和任务链推荐
 └── server.rs              # 主服务器实现
 ```
 
@@ -32,20 +38,45 @@ src/function_tools/
 
 ## 核心类型定义 (types.rs)
 
-### 技术实现
+### 增强的类型系统
 ```rust
 // 位置: src/function_tools/types.rs
-pub struct FunctionDefinition {
-    pub name: String,           // OpenAI Function Calling 兼容
-    pub description: String,    // 中文描述，便于理解
-    pub parameters: Value,      // JSON Schema 参数定义
+
+// 增强的响应类型
+pub struct FunctionResponse {
+    pub success: bool,
+    pub result: Option<Value>,
+    pub error: Option<MaaError>,           // 统一错误类型
+    pub timestamp: DateTime<Utc>,
+    pub execution_time_ms: Option<u64>,    // 执行时间
+    pub metadata: ResponseMetadata,        // 元数据
 }
 
-pub struct FunctionResponse {
-    pub success: bool,          // 执行状态
-    pub result: Option<Value>,  // 执行结果
-    pub error: Option<String>,  // 错误信息
-    pub timestamp: DateTime<Utc>, // 执行时间戳
+// 细化的错误类型
+pub struct MaaError {
+    pub error_type: ErrorType,      // 错误分类
+    pub message: String,            // 错误消息
+    pub details: Option<String>,    // 详细信息
+    pub suggestion: Option<String>, // 解决建议
+    pub error_code: Option<String>, // 错误码
+}
+
+// 上下文管理
+pub struct TaskContext {
+    pub user_id: Option<String>,
+    pub session_id: Option<String>,
+    pub game_state: GameState,      // 游戏状态
+    pub last_operations: Vec<String>, // 历史操作
+    pub recommendations: Vec<String>, // 智能推荐
+}
+
+// 资源使用统计
+pub struct ResourceUsage {
+    pub sanity_used: Option<i32>,
+    pub medicine_used: Option<i32>,
+    pub stone_used: Option<i32>,
+    pub recruit_tickets_used: Option<i32>,
+    pub items_gained: HashMap<String, i32>,
 }
 ```
 
@@ -174,24 +205,81 @@ pub async fn handle_sss_copilot(args: Value) -> Result<Value, String> {
 3. `maa_video_recognition` - 视频识别
 4. `maa_system_management` - 系统管理
 
-### 技术亮点
+### 新增功能亮点
 
-#### 状态管理集成
+### 1. 智能自然语言解析
+
+#### 中文游戏术语支持
+- **关卡别名**: 狗粮=1-7、龙门币本=CE-5、经验书本=LS-5
+- **数字识别**: 支持中文数字（一、二、三等）
+- **材料映射**: 固源岩→1-7、糖聚块→S4-1
+
 ```rust
-pub async fn handle_closedown(args: Value) -> Result<Value, String> {
-    // 检查当前状态
-    match get_maa_status().await {
-        Ok(status) => {
-            if save_state {
-                info!("💾 保存当前状态");
+// src/maa_core/basic_ops.rs:519
+fn parse_fight_command(command: &str) -> Result<(String, i32)> {
+    // 支持更多中文别名和数字表达
+    if cmd_lower.contains("龙门币") || cmd_lower.contains("金币") {
+        "CE-5"
+    } else if cmd_lower.contains("狗粮") || cmd_lower.contains("经验") {
+        "1-7"
+    }
+    // ...
+}
+```
+
+### 2. 统一错误处理系统
+
+#### 分类错误管理
+```rust
+pub enum ErrorType {
+    ParameterError,    // 参数错误
+    MaaCoreError,     // MAA核心错误
+    DeviceError,      // 设备连接错误
+    GameStateError,   // 游戏状态错误
+    TimeoutError,     // 超时错误
+}
+
+// 使用示例
+let error = MaaError::parameter_error(
+    "不支持的客户端类型",
+    Some("支持: Official, Bilibili, txwy...")
+);
+FunctionResponse::error("maa_startup", error)
+```
+
+### 3. 上下文感知系统
+
+#### 智能任务链推荐
+```rust
+// src/function_tools/context.rs
+fn generate_recommendations(user_id: &str, current_operation: &str) -> Vec<String> {
+    match current_operation {
+        "maa_startup" => vec![
+            "建议接下来执行 maa_rewards_enhanced 收集每日奖励",
+            "可以执行 maa_infrastructure_enhanced 进行基建管理",
+        ],
+        "maa_combat_enhanced" => {
+            if context.game_state.current_sanity < 20 {
+                vec!["理智不足，建议使用理智药或等待恢复"]
             }
-            // 执行关闭逻辑
-            Ok(json!({
-                "previous_status": status,
-                "status": "completed"
-            }))
-        },
-        Err(e) => Err(format!("关闭任务失败: {}", e))
+        }
+    }
+}
+```
+
+#### 游戏状态跟踪
+```rust
+pub struct GameState {
+    pub current_sanity: Option<i32>,
+    pub medicine_count: Option<i32>,
+    pub recruit_tickets: Option<i32>,
+    pub last_login: Option<DateTime<Utc>>,
+}
+
+// 自动提醒系统
+fn check_reminders(user_id: &str) -> Vec<String> {
+    if current_sanity >= max_sanity - 10 {
+        vec!["理智即将满值，建议及时使用"]
     }
 }
 ```
@@ -367,12 +455,31 @@ Err("游戏启动失败: MAA Core 连接失败".to_string())
 | 主服务器 | `src/function_tools/server.rs:27` | `EnhancedMaaFunctionServer::new()` |
 | 函数路由 | `src/function_tools/server.rs:72` | `execute_function()` |
 
-## 维护指南
+## 优化成果总结
 
-### 日常维护
-- 定期检查 TODO 注释
-- 更新 Function Calling 参数定义
-- 同步 MAA 官方 API 变更
+### 量化指标
+- **工具描述增强**: 16个工具全部增加详细的使用场景和参数说明
+- **自然语言支持**: 新增30+中文游戏术语支持
+- **错误处理**: 6种错误类型分类 + 智能建议系统
+- **上下文管理**: 增加任务链推荐和状态跟踪
+
+### 用户体验提升
+- **更容易理解**: 中文命令 “刷龙门币本用完理智” → CE-5 无限战斗
+- **更好的错误反馈**: 明确的错误类型和解决建议
+- **智能推荐**: 根据当前操作和游戏状态推荐后续任务
+- **资源跟踪**: 显示理智、材料使用情况
+
+### 维护指南
+
+#### 日常维护
+- 定期更新游戏术语映射表
+- 监控错误率和用户反馈
+- 优化任务链推荐逻辑
+
+#### 扩展指南
+- 新增工具: 在对应类别模块中添加工具定义和处理函数
+- 扩展语言支持: 在 `maa_core/basic_ops.rs` 中添加新的解析规则
+- 新增上下文: 在 `context.rs` 中扩展推荐逻辑
 
 ### 性能监控
 - 监控函数执行时间

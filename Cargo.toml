@@ -1,9 +1,15 @@
 [package]
 name = "maa-intelligent-server"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 authors = ["MAA Team"]
-description = "智能 MAA 控制中间层 - MCP 协议转换器"
+description = "MAA 智能控制中间层 - 基于消息队列 + 单线程工作者架构的 MaaAssistantArknights 自动化控制系统"
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/MaaAssistantArknights/maa-remote-server"
+repository = "https://github.com/MaaAssistantArknights/maa-remote-server"
+keywords = ["maa", "arknights", "automation", "ai", "function-calling"]
+categories = ["games", "api-bindings", "web-programming::http-server"]
 
 [dependencies]
 # MAA 官方 FFI 绑定 - 使用 maa-cli 项目中的 maa-sys
@@ -14,8 +20,8 @@ maa-types = { path = "maa-cli/crates/maa-types", features = ["serde"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 libloading = { version = "0.8", optional = true }
 
-# MCP 官方 SDK (重新尝试正确使用)
-rmcp = { version = "0.5.0", features = ["server", "macros"] }
+# 注释：移除了复杂的 MCP 协议，使用标准 HTTP Function Calling
+# rmcp = { version = "0.5.0", features = ["server", "macros"] }
 
 # Web 服务器 (更新到最新版本)
 axum = "0.8.4"
@@ -79,5 +85,20 @@ path = "src/lib.rs"
 [features]
 default = ["server"]
 server = []
+# 真实 MAA Core 集成特性 - 生产模式
 with-maa-core = ["maa-sys/runtime"]
+# 开发模式特性 - 模拟 MAA 功能
 stub-mode = []
+
+[profile.release]
+# 优化配置
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+# 开发配置
+opt-level = 0
+debug = true
+panic = "unwind"
