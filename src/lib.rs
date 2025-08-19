@@ -7,8 +7,8 @@ pub mod ai_client;
 pub mod maa_adapter;
 pub mod maa_core;
 pub mod function_tools;
-pub mod function_calling_server;
-// pub mod operator_manager;  // Temporarily disabled due to MaaBackend dependency
+// pub mod function_calling_server; // REMOVED - 重复实现，已由 maa-server-singleton.rs 替代
+// operator_manager module REMOVED - 功能已集成到 function_tools 中
 pub mod copilot_matcher;
 
 // 导出核心类型
@@ -22,10 +22,7 @@ pub use function_tools::{
     FunctionDefinition, FunctionCall as MaaFunctionCall, FunctionResponse,
     EnhancedMaaFunctionServer, create_enhanced_function_server
 };
-// pub use operator_manager::{
-//     OperatorManager, OperatorManagerConfig, OperatorManagerTrait,
-//     Operator, OperatorFilter, OperatorSummary, ScanResult, OperatorError, OperatorResult
-// };
+// operator_manager exports REMOVED
 pub use copilot_matcher::{
     CopilotMatcher, CopilotMatcherTrait, MatcherConfig,
     CopilotData, OperatorRequirement, StageOperator, MatchStage, MatchResult, MatchScore,

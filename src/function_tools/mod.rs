@@ -10,7 +10,7 @@ pub mod advanced_automation;
 pub mod support_features;  
 pub mod system_features;
 pub mod server;
-pub mod context;
+// pub mod context; // REMOVED - 未使用的上下文管理模块
 
 // 重新导出核心类型
 pub use types::{FunctionDefinition, FunctionCall, FunctionResponse, TaskContext, GameState};
@@ -18,5 +18,4 @@ pub use types::{FunctionDefinition, FunctionCall, FunctionResponse, TaskContext,
 // 重新导出服务器
 pub use server::{EnhancedMaaFunctionServer, create_enhanced_function_server};
 
-// 重新导出上下文管理
-pub use context::{ContextManager, GLOBAL_CONTEXT, record_operation, generate_recommendations, suggest_task_chain, update_game_state, check_reminders};
+// context exports REMOVED - 功能未被实际使用

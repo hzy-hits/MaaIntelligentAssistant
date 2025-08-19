@@ -1,8 +1,8 @@
 # MAA 智能控制中间层
 
-> **基于消息队列 + 单线程工作者架构的 MaaAssistantArknights 自动化控制系统**
+> **基于 AI Function Calling 的明日方舟全自动化控制系统**
 
-通过 Function Calling 协议让大模型直接控制明日方舟，支持 PlayCover iOS 模拟和真机连接。
+通过智能对话让大模型直接控制明日方舟游戏，支持16个专业MAA功能工具，提供完整的游戏自动化解决方案。集成Web聊天界面，支持 PlayCover iOS 模拟和真机连接。
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -12,16 +12,18 @@
 ## ✨ 功能特性
 
 ### 🎯 核心能力
-- **16个完整 MAA 工具**: 覆盖启动、刷图、招募、基建、肉鸽等全功能
-- **PlayCover 完美支持**: 自动 TouchMode 配置，解决 iOS 模拟截图问题
-- **并发安全架构**: 消息队列 + 单线程工作者，零锁设计
-- **动态库集成**: 运行时加载 MAA.app，版本灵活、资源共享
+- **🤖 智能对话控制**: 通过自然语言与MAA智能助手对话，实现游戏全自动化
+- **⚡ 16个专业工具**: 覆盖启动、刷图、招募、基建、肉鸽等全部MAA功能
+- **💬 Web聊天界面**: 现代化React前端，支持实时对话和工具调用展示
+- **🧠 深度游戏理解**: 基于完整MAA知识库的智能任务分析和执行策略
+- **🔧 PlayCover完美支持**: 自动TouchMode配置，解决iOS模拟截图问题
 
 ### 🚀 技术亮点
-- **Function Calling 协议**: 标准化 AI 模型集成接口
-- **异步桥接**: HTTP 异步请求与 MAA 同步调用的完美结合
-- **多 AI 提供商**: OpenAI、Azure、通义千问、Kimi、Ollama
-- **双运行模式**: 开发模式（Stub）+ 生产模式（真实 MAA）
+- **AI Function Calling**: 大模型自主决策工具调用，智能任务链执行
+- **消息队列架构**: 异步HTTP + 单线程MAA工作者，保证状态一致性
+- **多AI提供商**: OpenAI、Azure、通义千问、Kimi、Ollama全支持
+- **专业系统提示词**: 基于MAA官方文档的专业游戏知识和策略指导
+- **双运行模式**: 开发模式（Stub）+ 生产模式（真实MAA）
 
 ### 🎮 设备支持
 - ✅ **PlayCover**: macOS 上的 iOS 应用模拟器
@@ -107,15 +109,29 @@ cargo run --bin maa-server
 cargo run --bin maa-server --features with-maa-core
 ```
 
-**启动 Web UI** (可选):
+### 4. 启动前端界面
+
+**安装前端依赖**:
 ```bash
 cd maa-chat-ui
 npm install
-npm run dev
 ```
 
-### 4. 测试连接
+**启动开发服务器**:
+```bash
+npm run dev
+# 前端将在 http://localhost:3000 启动
+```
 
+**构建生产版本** (可选):
+```bash
+npm run build
+npm run preview  # 预览生产构建
+```
+
+### 5. 测试连接
+
+**后端API测试**:
 ```bash
 # 健康检查
 curl http://localhost:8080/health
@@ -135,6 +151,85 @@ curl -X POST http://localhost:8080/call \
       }
     }
   }'
+```
+
+**前端界面测试**:
+```bash
+# 访问聊天界面
+open http://localhost:3000
+
+# 测试智能对话
+# 在聊天框输入："帮我启动游戏"
+# 系统将自动调用 maa_startup 工具
+```
+
+## 🌐 前后端交互协议
+
+### 系统架构图
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   React前端     │    │   Axum后端       │    │   MAA工作线程   │
+│   (端口3000)    │◄──►│   (端口8080)     │───►│   (任务队列)    │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+        │                      │                        │
+   用户输入对话           AI智能分析调用              执行真实MAA任务
+   实时界面展示           Function Calling           回调状态更新
+```
+
+### 聊天接口协议
+
+**前端请求格式**:
+```typescript
+POST /chat
+Content-Type: application/json
+
+{
+  "messages": [
+    {"role": "user", "content": "帮我刷5次1-7关卡，我需要经验书"}
+  ]
+}
+```
+
+**后端响应格式** (OpenAI兼容):
+```json
+{
+  "choices": [{
+    "message": {
+      "role": "assistant",
+      "content": "✅ 已成功为您执行战斗任务\n\n📊 执行结果：\n- 关卡：1-7\n- 完成次数：5次\n- 消耗理智：30\n- 获得经验书：150个\n\n💡 建议：经验书储量充足，可以升级干员了！",
+      "tool_calls": [
+        {
+          "function": {
+            "name": "maa_combat_enhanced",
+            "arguments": "{\"stage\":\"1-7\",\"battle_count\":5}"
+          }
+        }
+      ]
+    }
+  }]
+}
+```
+
+### Function Calling工作流程
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Frontend as React前端
+    participant Backend as Rust后端
+    participant AI as AI模型
+    participant MAA as MAA工作者
+
+    User->>Frontend: 输入: "帮我刷1-7"
+    Frontend->>Backend: POST /chat {messages}
+    Backend->>AI: 发送系统提示词+工具定义+用户消息
+    AI->>Backend: 返回工具调用决策
+    Backend->>MAA: 执行maa_combat_enhanced任务
+    MAA->>Backend: 返回执行结果
+    Backend->>AI: 发送执行结果，生成用户友好回复
+    AI->>Backend: 返回最终回复
+    Backend->>Frontend: OpenAI格式响应
+    Frontend->>User: 显示智能回复+工具调用详情
 ```
 
 ## 🔧 Function Calling 工具
@@ -209,8 +304,22 @@ curl -X POST http://localhost:8080/call \
 |------|------|------|
 | `/health` | GET | 健康检查 |
 | `/tools` | GET | 获取 Function Calling 工具定义 |
-| `/call` | POST | 执行 MAA 任务 |
+| `/call` | POST | 执行 MAA 任务 (直接调用) |
+| `/chat` | POST | 智能对话接口 (AI决策调用) |
 | `/status` | GET | 获取 MAA 状态信息 |
+
+### 智能对话 vs 直接调用
+
+**智能对话接口** (`/chat`) - **推荐方式**:
+- 🤖 AI自主分析用户需求
+- 🧠 智能选择合适的工具和参数
+- 📝 提供专业的执行建议和结果解读
+- 🔄 支持多工具任务链执行
+
+**直接调用接口** (`/call`) - 开发调试:
+- ⚡ 直接执行指定工具
+- 🔧 适合API集成和自动化脚本
+- 📊 返回原始执行结果
 
 ### Function Calling 格式
 
@@ -385,6 +494,66 @@ maa-remote-server/
 - [Rust](https://rust-lang.org/) - 系统编程语言
 - [Axum](https://github.com/tokio-rs/axum) - 现代异步 Web 框架
 
+## 📖 使用示例
+
+### Web界面智能对话示例
+
+**日常任务**:
+```
+用户: "帮我做日常任务"
+助手: 开始执行日常任务序列：奖励收集 → 基建管理 → 公开招募
+
+✅ 奖励收集完成 - 获得合成玉200、龙门币15000
+✅ 基建管理完成 - 收集材料、重新排班
+✅ 公开招募完成 - 完成3次招募，获得新干员1个
+
+💡 建议：理智即将满溢，推荐刷经验书或龙门币本
+```
+
+**战斗刷图**:
+```
+用户: "我想要经验书，帮我刷1-7直到理智用完"
+助手: ✅ 已成功执行1-7关卡刷取
+
+📊 执行结果：
+- 完成次数：42次
+- 消耗理智：126
+- 获得经验书：126个
+- 执行时间：约35分钟
+
+💡 建议：经验书储量充足，可以升级核心干员了！
+```
+
+**肉鸽模式**:
+```
+用户: "帮我刷肉鸽，用指挥分队"
+助手: 🃏 开始执行集成战略任务
+
+📊 执行结果：
+- 主题：傀影与猩红孤钻
+- 分队：指挥分队
+- 完成层数：15层
+- 获得收藏品：猩红孤钻×3
+
+💡 建议：表现优秀！可以尝试提高难度获得更多奖励
+```
+
+### 前端功能特性
+
+**智能对话界面**:
+- 📱 现代化响应式设计，支持移动端
+- 💬 实时消息流，支持打字机效果
+- 🔧 工具调用详情展示，透明化执行过程
+- 📊 执行结果可视化，数据统计清晰
+- 🎨 优雅的UI/UX设计，使用体验流畅
+
+**技术栈**:
+- **React 19**: 最新React版本，支持Concurrent特性
+- **Vite 5**: 极速构建工具，热重载体验
+- **TypeScript**: 类型安全，开发体验优秀
+- **Tailwind CSS**: 实用优先的CSS框架
+- **Lucide Icons**: 现代化图标库
+
 ---
 
-**维护状态**: ✅ 积极维护 | **版本**: 1.0.0 | **文档更新**: 2025-08-19
+**维护状态**: 积极维护 | **版本**: 1.0.0 | **文档更新**: 2025-08-19
