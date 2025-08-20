@@ -270,6 +270,37 @@ impl MaaWorkerV2 {
                     Err(e) => Err(anyhow!("战斗任务失败: {}", e))
                 }
             },
+            "maa_infrastructure_enhanced" => {
+                debug!("执行基建管理任务");
+                let operation_mode = task.parameters.get("operation_mode")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("full_auto");
+                
+                // 根据操作模式构造MAA Core期望的参数格式
+                let params = match operation_mode {
+                    "full_auto" => r#"{"enable": true, "mode": 0, "facility": ["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"], "drones": "Money"}"#.to_string(),
+                    "collect_only" => r#"{"enable": true, "mode": 1, "facility": ["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"]}"#.to_string(),
+                    "custom" => {
+                        // 从参数中提取自定义设施列表
+                        let facilities = task.parameters.get("facilities")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+                            .unwrap_or_else(|| vec!["Mfg", "Trade", "Power", "Control"]);
+                        let facilities_json = facilities.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(",");
+                        format!(r#"{{"enable": true, "mode": 0, "facility": [{}], "drones": "Money"}}"#, facilities_json)
+                    },
+                    _ => r#"{"enable": true, "mode": 0, "facility": ["Mfg", "Trade", "Power", "Control", "Reception", "Office", "Dorm"], "drones": "Money"}"#.to_string(),
+                };
+                
+                match self.core.execute_task("Infrast", &params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "operation_mode": operation_mode,
+                        "status": "基建管理任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("基建管理任务失败: {}", e))
+                }
+            },
             _ => {
                 // 通用任务处理 - 优化：直接传递参数，避免重复序列化
                 debug!("执行通用任务: {}", task.task_type);
