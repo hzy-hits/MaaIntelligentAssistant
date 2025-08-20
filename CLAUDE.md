@@ -5,16 +5,32 @@
 
 ## 核心架构
 
-### 最新架构 (optimized-server-v2)
+### V2架构 (optimized-server)
 ```
-HTTP API (8080) → Enhanced Tools V2 → Task Queue V2 → MAA Worker V2 → thread_local! Assistant
-                ↓
-            SSE Events (实时更新)
+┌─────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   HTTP API  │───▶│ Enhanced Tools   │───▶│ Task Queue V2   │───▶│  MAA Worker V2  │───▶│ thread_local!   │
+│   (8080)    │    │      V2          │    │ (单队列+优先级)  │    │                 │    │   Assistant     │
+└─────────────┘    └──────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+                             │                                            │
+                             ▼                                            ▼
+                    ┌─────────────────┐                         ┌─────────────────┐
+                    │  AI Chat API    │                         │  SSE Events     │
+                    │                 │                         │  (实时更新)      │
+                    └─────────────────┘                         └─────────────────┘
 ```
 
-### 旧架构 (intelligent-server) 
+### V1架构 (intelligent-server)
 ```
-HTTP API (8080) → Enhanced Tools → Task Queue → MAA Worker → maa_sys::Assistant
+┌─────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   HTTP API  │───▶│ Enhanced Tools   │───▶│ Task Queue V1   │───▶│  MAA Worker V1  │───▶│ thread_local!   │
+│   (8080)    │    │       V1         │    │   (双队列)       │    │                 │    │   Assistant     │
+└─────────────┘    └──────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+                             │                     │
+                             ▼                     ▼
+                    ┌─────────────────┐   ┌─────────────────┐
+                    │  AI Chat API    │   │ Queue Client    │
+                    │                 │   │                 │
+                    └─────────────────┘   └─────────────────┘
 ```
 
 ### 技术栈
@@ -76,7 +92,7 @@ src/
 └── lib.rs                          # 库入口
 ```
 
-## Function Calling 工具 (16个)
+## Function Calling 工具 (17个)
 
 ### 核心游戏功能
 - `maa_startup` - 游戏启动和账号管理
@@ -101,13 +117,14 @@ src/
 - `maa_custom_task` - 自定义任务
 - `maa_video_recognition` - 视频识别
 - `maa_system_management` - 系统管理
+- `maa_take_screenshot` - 截图功能
 
 ## API端点
 
 ### optimized-server-v2 (推荐)
 ```http
 GET  /health                        # 健康检查
-GET  /tools                         # 获取16个工具定义
+GET  /tools                         # 获取17个工具定义
 POST /call                          # 执行Function Calling
 GET  /status                        # MAA状态查询
 GET  /sse/tasks                     # SSE实时任务更新流
@@ -117,7 +134,7 @@ POST /chat                          # AI聊天接口
 ### intelligent-server (旧版)
 ```http
 GET  /health                        # 健康检查
-GET  /tools                         # 获取16个工具定义  
+GET  /tools                         # 获取17个工具定义  
 POST /call                          # 执行Function Calling
 GET  /status                        # MAA状态查询
 ```
@@ -176,7 +193,7 @@ MAA_DEVICE_ADDRESS=localhost:1717          # 设备地址(PlayCover)
 
 ### 3. 实用优于完美
 - 保留核心功能，删除过度设计
-- 16个工具覆盖完整MAA功能
+- 17个工具覆盖完整MAA功能
 - stub模式支持无MAA环境开发
 
 ## 开发工作流
@@ -223,13 +240,13 @@ curl -X POST http://localhost:8080/chat \
 
 ### 重构前问题
 - 70+个文件，7层调用链
-- 16个工具返回"not_implemented"
+- 17个工具返回"not_implemented"
 - Arc<Mutex<>>复杂所有权模型
 - 大量冗余抽象层
 
 ### 重构后成果
 - 40+个文件，3层调用链
-- 16个工具直接调用MAA Core
+- 17个工具直接调用MAA Core
 - thread_local! 单例模式
 - 删除所有冗余代码
 
@@ -241,7 +258,7 @@ curl -X POST http://localhost:8080/chat \
 - mcp_tools中4个文件 (重复实现)
 
 ### 保留的核心价值
-- 16个完整MAA Function Calling工具
+- 17个完整MAA Function Calling工具
 - HTTP服务器框架
 - AI客户端集成
 - 干员管理和作业匹配系统
@@ -321,7 +338,7 @@ curl -X POST http://localhost:8080/chat \
 - ConnectionManager连接层
 - 各种Trait适配器层
 
-#### 16工具分类逻辑
+#### 17工具分类逻辑
 **分类原则**: 按用户使用频率和复杂度
 ```
 核心游戏功能 (高频) → 高级自动化 (中频) → 辅助功能 (低频) → 系统功能 (维护)
@@ -401,14 +418,15 @@ curl -X POST http://localhost:8080/chat \
 
 #### 重构收益
 - 文件数量：70+ → 60+
-- 架构层次：7层 → 4层
+- 任务队列系统：双队列 → 单队列+优先级
+- 新增功能：SSE实时更新、结构化截图响应
 - 编译状态：从无法编译到正常运行
 - 开发体验：从复杂难懂到结构清晰
 
 ## 技术文档体系
 
 ### 模块文档
-- **[Function Tools 模块](docs/modules/FUNCTION_TOOLS.md)**: 16个Function Calling工具的详细实现
+- **[Function Tools 模块](docs/modules/FUNCTION_TOOLS.md)**: 17个Function Calling工具的详细实现
 - **[MAA Core 模块](docs/modules/MAA_CORE.md)**: thread_local!单例和7个基础操作
 - **[AI Client 模块](docs/modules/AI_CLIENT.md)**: 多提供商AI客户端集成
 
@@ -442,7 +460,7 @@ curl -X POST http://localhost:8080/chat \
 - **并发模型**: Arc<Mutex<Assistant>> (锁竞争)
 - **任务队列**: 双队列系统(高优先级+普通)
 - **实时更新**: 无，需要轮询
-- **工具数量**: 16个Function Calling工具
+- **工具数量**: 17个Function Calling工具
 - **AI集成**: 支持多提供商聊天接口
 
 #### 验证状态
@@ -511,8 +529,8 @@ curl -X POST http://localhost:8080/call \
 
 | 指标 | V1 (intelligent) | V2 (optimized) | 改进 |
 |-----|-----------------|----------------|------|
-| **架构层次** | 7层调用链 | 4层调用链 | -43% |
-| **并发模型** | Arc<Mutex<>> | thread_local! | 无锁设计 |
+| **任务队列** | 双队列系统 | 单队列+优先级 | 简化队列管理 |
+| **并发模型** | thread_local! | thread_local! | 两版本相同 |
 | **任务队列** | 双队列系统 | 单队列+优先级 | 简化50% |
 | **实时更新** | ❌ 轮询 | ✅ SSE推送 | 用户体验质升 |
 | **JSON序列化** | 多次重复 | 直接传递 | 减少序列化开销 |
@@ -542,47 +560,51 @@ match classify_task(&function_name) {
 }
 ```
 
-#### 无锁并发设计
+#### 线程安全设计
 ```rust
-// V1: 复杂锁竞争
-Arc<Mutex<Assistant>>
-
-// V2: 线程本地存储
+// V1和V2都使用相同的thread_local设计
 thread_local! {
     static MAA_ASSISTANT: RefCell<Option<Assistant>> = RefCell::new(None);
 }
+
+// Arc<Mutex<>>只用于任务状态管理，与Assistant无关
 ```
 
 ### 📊 架构简化对比
 
-#### V1架构问题
-- 🐌 **7层调用链**: HTTP → MaaBackend → MaaService → ConnectionManager → Arc<Mutex<>> → Assistant
-- 🔒 **锁竞争**: 多线程访问同一Assistant实例造成阻塞  
-- 🔄 **重复序列化**: JSON参数在多层间重复序列化/反序列化
-- 📨 **无实时反馈**: 用户需要手动刷新任务状态
+#### V1架构 (intelligent-server)
+- 🔗 **调用链**: HTTP → Enhanced Tools → Queue Client → Task Queue (双队列) → Worker → thread_local!
+- 🔄 **任务队列**: 分离的high_priority和normal_priority两个通道
+- 📨 **无实时反馈**: 需要轮询查询任务状态
+- 📷 **截图返回**: 原始字节数据，需要手动处理
 
-#### V2架构优势  
-- ⚡ **4层调用链**: HTTP → Enhanced Tools V2 → Task Queue V2 → Worker V2 → thread_local!
-- 🚀 **无锁设计**: 每线程独立Assistant实例，零锁竞争
-- 📦 **直接传递**: JSON参数直接传递，避免重复序列化  
-- 📡 **实时推送**: SSE自动推送任务进度，用户体验显著提升
+#### V2架构优势 (optimized-server)
+- 🔗 **调用链**: HTTP → Enhanced Tools V2 → Task Queue V2 (单队列+优先级) → Worker V2 → thread_local!
+- 🎯 **任务队列**: 统一task_tx通道，使用优先级属性排序
+- 📡 **实时推送**: SSE自动推送任务进度，无需轮询
+- 📷 **结构化截图**: JSON响应包含base64、大小、格式等信息
 
 ### 🛠️ 开发体验改进
 
-#### 调试增强
-```rust
-// V2新增详细调试信息
-console.log('📸 Screenshot Debug Info:');
-console.log('- Base64 length:', base64Data.length);
-console.log('- Data URL length:', screenshotUrl.length);
+#### SSE实时调试
+```javascript
+// V2新增的SSE连接管理
+const eventSource = new EventSource('/sse/tasks');
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('📨 收到SSE消息:', data);
+};
 ```
 
-#### 错误处理
+#### 截图功能增强
 ```rust  
-// V2完善的错误处理和重试机制
-if screenshotUrl.length > 2000000 {
-    console.warn('⚠️ Data URL might exceed browser limits');
-}
+// V2返回结构化截图数据
+Ok(json!({
+    "screenshot": base64_data,
+    "size": image_data.len(),
+    "format": "PNG",
+    "timestamp": Utc::now().to_rfc3339()
+}))
 ```
 
 ### 📈 用户体验提升
@@ -599,7 +621,27 @@ if screenshotUrl.length > 2000000 {
 
 ---
 
-**V2设计哲学**: "这个有必要吗？" - 简化优于复杂，实用优于完美  
-**文档原则**: 简洁、准确、实用  
+## 📈 对比总结
+
+### ✅ 实际改进 (已验证)
+- **任务队列**: 双队列 → 单队列+优先级（简化管理）
+- **SSE实时更新**: 无 → 完整SSE系统（新增功能）
+- **截图响应**: 原始数据 → 结构化JSON（更好集成）
+- **工具数量**: 17个Function Calling工具（两版本相同）
+
+### ❌ 误导性声明 (已纠正)
+- ~~架构层次：7层→4层~~ → 实际都是5层左右
+- ~~并发模型：Arc<Mutex<>> → thread_local!~~ → 两版本都用thread_local!
+- ~~16个工具~~ → 实际是17个工具
+
+### 🎁 真实价值
+**V2的核心价值在于**：
+1. **新增功能**: SSE实时更新系统
+2. **用户体验**: 从轮询到实时推送
+3. **架构清理**: 简化队列系统和截图处理
+4. **开发体验**: 更好的前端集成和调试
+
+**V2设计哲学**: 实用优于完美，实际改进优于理论数据  
+**文档原则**: 简洁、**准确**、实用 → 经严格验证后纠正  
 **架构原则**: 质疑抽象，保留核心  
 **维护原则**: 文档与代码同步
