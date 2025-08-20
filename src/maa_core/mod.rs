@@ -6,17 +6,46 @@
 use std::path::PathBuf;
 use std::os::raw::{c_char, c_void};
 use std::ffi::CStr;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 use tracing::{info, debug, warn};
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 use serde_json;
 use anyhow::{Result, anyhow};
+use tokio::sync::oneshot;
+use once_cell::sync::Lazy;
 use crate::config::CONFIG;
 
 // 导出子模块
 pub mod basic_ops;
 pub mod task_queue;
 pub mod worker;
+pub mod task_status;
+pub mod screenshot;
+pub mod task_classification;
+pub mod task_notification;
+
+/// 全局任务完成通知器
+/// task_id -> oneshot sender
+static GLOBAL_TASK_NOTIFIERS: Lazy<Arc<Mutex<HashMap<i32, oneshot::Sender<serde_json::Value>>>>> = 
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+/// 注册任务通知器
+pub fn register_task_notifier(task_id: i32, sender: oneshot::Sender<serde_json::Value>) {
+    let mut notifiers = GLOBAL_TASK_NOTIFIERS.lock().unwrap();
+    notifiers.insert(task_id, sender);
+    debug!("注册任务通知器: task_id={}", task_id);
+}
+
+/// 触发任务完成通知
+pub fn notify_task_completion(task_id: i32, result: serde_json::Value) {
+    let mut notifiers = GLOBAL_TASK_NOTIFIERS.lock().unwrap();
+    if let Some(sender) = notifiers.remove(&task_id) {
+        let _ = sender.send(result);
+        info!("任务完成通知已发送: task_id={}", task_id);
+    }
+}
 
 // 重新导出基础操作
 pub use basic_ops::{
@@ -47,22 +76,22 @@ unsafe extern "C" fn maa_callback(
     let details_json: serde_json::Value = match serde_json::from_str(&details_str) {
         Ok(json) => json,
         Err(_) => {
-            warn!("📋 MAA回调JSON解析失败: {}", details_str);
+            warn!("MAA回调JSON解析失败: {}", details_str);
             return;
         }
     };
     
     // 记录MAA事件
-    info!("📋 MAA回调事件: {} | JSON: {}", msg, details_str);
+    info!("MAA回调事件: {} | JSON: {}", msg, details_str);
     
     // 处理重要事件 - 使用官方协议的消息代码
     match msg {
         // Global Info
         0 => {
-            warn!("💥 MAA内部错误: {}", details_str);
+            warn!("MAA内部错误: {}", details_str);
         },
         1 => {
-            warn!("❌ MAA初始化失败: {}", details_str);
+            warn!("MAA初始化失败: {}", details_str);
         },
         2 => {
             // ConnectionInfo - 关键的连接事件处理
@@ -70,68 +99,104 @@ unsafe extern "C" fn maa_callback(
                 match what {
                     "ConnectFailed" => {
                         let why = details_json.get("why").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        warn!("🔌 连接失败: {} - 详情: {}", why, details_str);
+                        warn!("连接失败: {} - 详情: {}", why, details_str);
                         // 不要因为连接失败就退出，这是正常的重试流程
                     },
                     "Connected" => {
-                        info!("🔌 设备连接成功");
+                        info!("设备连接成功");
                     },
                     "UuidGot" => {
-                        info!("🔌 获取设备UUID成功");
+                        info!("获取设备UUID成功");
                     },
                     _ => {
-                        debug!("🔌 连接信息: {} - {}", what, details_str);
+                        debug!("连接信息: {} - {}", what, details_str);
                     }
                 }
             }
         },
         3 => {
-            info!("✅ 全部任务完成");
+            info!("全部任务完成");
+            // 通知所有已完成的任务
+            if let Some(finished_tasks) = details_json.get("finished_tasks").and_then(|v| v.as_array()) {
+                for task in finished_tasks {
+                    if let Some(task_id) = task.as_i64() {
+                        notify_task_completion(task_id as i32, details_json.clone());
+                    }
+                }
+            }
         },
         4 => {
             // AsyncCallInfo - 异步调用信息
-            debug!("📡 异步调用信息: {}", details_str);
+            debug!("异步调用信息: {}", details_str);
         },
         5 => {
-            info!("🗑️ MAA实例已销毁");
+            info!("MAA实例已销毁");
         },
         
         // TaskChain Info
         10000 => {
-            warn!("❌ 任务链错误: {}", details_str);
+            warn!("任务链错误: {}", details_str);
+            // 更新任务状态
+            if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
+                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+            }
         },
         10001 => {
-            info!("🚀 任务链开始: {}", details_str);
+            info!("任务链开始: {}", details_str);
+            // 更新任务状态
+            if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
+                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+            }
         },
         10002 => {
-            info!("✅ 任务链完成: {}", details_str);
+            info!("任务链完成: {}", details_str);
+            // 更新任务状态和通知oneshot channel
+            if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
+                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+                notify_task_completion(task_id as i32, details_json.clone());
+            }
         },
         10003 => {
-            debug!("📡 任务链额外信息: {}", details_str);
+            debug!("任务链额外信息: {}", details_str);
         },
         10004 => {
-            warn!("⏹️ 任务链手动停止: {}", details_str);
+            warn!("任务链手动停止: {}", details_str);
         },
         
         // SubTask Info
         20000 => {
-            warn!("❌ 子任务错误: {}", details_str);
+            warn!("子任务错误: {}", details_str);
+            if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
+                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+            }
         },
         20001 => {
-            debug!("🔧 子任务开始: {}", details_str);
+            debug!("子任务开始: {}", details_str);
+            if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
+                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+            }
         },
         20002 => {
-            debug!("✅ 子任务完成: {}", details_str);
+            debug!("子任务完成: {}", details_str);
+            if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
+                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+            }
         },
         20003 => {
-            debug!("📡 子任务额外信息: {}", details_str);
+            debug!("子任务额外信息: {}", details_str);
+            if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
+                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+            }
         },
         20004 => {
-            debug!("⏹️ 子任务手动停止: {}", details_str);
+            debug!("子任务手动停止: {}", details_str);
+            if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
+                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+            }
         },
         
         _ => {
-            debug!("📡 未知MAA事件代码: {} - {}", msg, details_str);
+            debug!("未知MAA事件代码: {} - {}", msg, details_str);
         }
     }
 }
@@ -142,6 +207,14 @@ unsafe extern "C" fn maa_callback(
 // 重新导出任务队列相关类型
 pub use task_queue::{MaaTask, MaaTaskSender, MaaTaskReceiver, create_maa_task_channel};
 pub use worker::MaaWorker;
+pub use task_status::{MaaTaskStatus, TaskStatus, get_task_status, get_all_tasks, get_running_tasks, cleanup_old_tasks};
+pub use screenshot::{ScreenshotInfo, save_maa_screenshot, get_screenshot_by_id, list_all_screenshots, cleanup_screenshots};
+pub use task_classification::{TaskExecutionMode, get_task_execution_mode, estimate_task_duration};
+pub use task_notification::{
+    TaskStatusEvent, TaskStatus as NotificationTaskStatus, init_task_notification_system, 
+    subscribe_task_events, notify_task_status, notify_task_started, notify_task_progress, 
+    notify_task_completed, notify_task_failed, TaskStatusMonitor
+};
 
 /// MAA 状态信息
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,36 +1,33 @@
 # MAA 智能控制中间层
 
-> **基于 AI Function Calling 的明日方舟全自动化控制系统**
-
-通过智能对话让大模型直接控制明日方舟游戏，支持16个专业MAA功能工具，提供完整的游戏自动化解决方案。集成Web聊天界面，支持 PlayCover iOS 模拟和真机连接。
+基于 AI Function Calling 的明日方舟全自动化控制系统。通过智能对话让大模型直接控制明日方舟游戏，支持16个MAA功能工具，提供完整的游戏自动化解决方案。
 
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![MAA](https://img.shields.io/badge/MAA-v5.22.3+-green.svg)](https://github.com/MaaAssistantArknights/MaaAssistantArknights)
 [![PlayCover](https://img.shields.io/badge/PlayCover-✅-blue.svg)](https://playcover.io/)
 
-## ✨ 功能特性
+## 功能特性
 
-### 🎯 核心能力
-- **🤖 智能对话控制**: 通过自然语言与MAA智能助手对话，实现游戏全自动化
-- **⚡ 16个专业工具**: 覆盖启动、刷图、招募、基建、肉鸽等全部MAA功能
-- **💬 Web聊天界面**: 现代化React前端，支持实时对话和工具调用展示
-- **🧠 深度游戏理解**: 基于完整MAA知识库的智能任务分析和执行策略
-- **🔧 PlayCover完美支持**: 自动TouchMode配置，解决iOS模拟截图问题
+### 核心能力
+- **智能对话控制**: 通过自然语言与MAA助手对话，实现游戏自动化
+- **17个专业工具**: 覆盖启动、刷图、招募、基建、肉鸽、截图等MAA功能
+- **Web聊天界面**: React前端，支持实时对话和工具调用展示
+- **深度游戏理解**: 基于MAA知识库的智能任务分析和执行策略
+- **PlayCover支持**: 自动TouchMode配置，解决iOS模拟截图问题
 
-### 🚀 技术亮点
+### 技术特性
 - **AI Function Calling**: 大模型自主决策工具调用，智能任务链执行
-- **消息队列架构**: 异步HTTP + 单线程MAA工作者，保证状态一致性
-- **多AI提供商**: OpenAI、Azure、通义千问、Kimi、Ollama全支持
-- **专业系统提示词**: 基于MAA官方文档的专业游戏知识和策略指导
-- **双运行模式**: 开发模式（Stub）+ 生产模式（真实MAA）
+- **异步任务队列**: HTTP + 单线程MAA工作者，保证状态一致性
+- **多AI提供商**: OpenAI、Azure、通义千问、Kimi、Ollama支持
+- **双运行模式**: 开发模式(Stub) + 生产模式(真实MAA)
 
-### 🎮 设备支持
-- ✅ **PlayCover**: macOS 上的 iOS 应用模拟器
-- ✅ **Android 模拟器**: BlueStacks、NoxPlayer、LDPlayer
-- ✅ **Android 真机**: USB 或无线 ADB 连接
+### 设备支持
+- PlayCover: macOS iOS应用模拟器
+- Android模拟器: BlueStacks、NoxPlayer、LDPlayer
+- Android真机: USB或无线ADB连接
 
-## 🏗️ 系统架构
+## 系统架构
 
 ```
 ┌─────────────────┐    ┌──────────────┐    ┌────────────────┐
@@ -38,18 +35,15 @@
 │   HTTP 服务器   │───▶│    (MPSC)    │───▶│   (独占MAA实例) │
 │ (多请求并发处理) │    │              │    │                │
 └─────────────────┘    └──────────────┘    └────────────────┘
-       │                       │                      │
-   1000+ QPS              任务序列化              线程安全执行
-   异步并发               消息传递                状态一致
 ```
 
 **架构优势**:
-- **零锁设计**: 避免 `Arc<Mutex<>>` 的死锁和竞态条件
-- **高性能**: 消息传递比锁机制更高效，延迟 <1ms
+- **零锁设计**: 避免 Arc<Mutex<>> 的死锁和竞态条件
+- **高性能**: 消息传递比锁机制更高效
 - **易调试**: 清晰的消息流，可追踪的执行路径
-- **状态一致**: MAA 实例状态始终保持一致性
+- **状态一致**: MAA实例状态始终保持一致性
 
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
@@ -67,7 +61,7 @@ cd maa-remote-server
 
 ### 2. 环境配置
 
-项目采用**分层配置系统** - TOML配置文件 + 环境变量：
+项目采用分层配置系统 - TOML配置文件 + 环境变量：
 
 ```bash
 cp .env.example .env
@@ -90,7 +84,7 @@ AI_PROVIDER=qwen
 AI_API_KEY=your-api-key-here
 ```
 
-**配置文件结构**:
+配置文件结构:
 - `config/app.toml` - 主配置文件（默认值和选项定义）
 - `.env` - 环境变量（运行时配置覆盖）
 - `.env.example` - 配置模板
@@ -99,31 +93,31 @@ AI_API_KEY=your-api-key-here
 
 ### 3. 运行服务器
 
-**开发模式** (模拟 MAA 功能):
+**开发模式** (模拟MAA功能):
 ```bash
-cargo run --bin maa-server
+cargo run --no-default-features --features stub-mode
 ```
 
-**生产模式** (真实 MAA 集成):
+**生产模式** (真实MAA集成，默认):
 ```bash
-cargo run --bin maa-server --features with-maa-core
+cargo run --bin maa-intelligent-server
 ```
 
 ### 4. 启动前端界面
 
-**安装前端依赖**:
+安装前端依赖:
 ```bash
 cd maa-chat-ui
 npm install
 ```
 
-**启动开发服务器**:
+启动开发服务器:
 ```bash
 npm run dev
 # 前端将在 http://localhost:3000 启动
 ```
 
-**构建生产版本** (可选):
+构建生产版本 (可选):
 ```bash
 npm run build
 npm run preview  # 预览生产构建
@@ -131,7 +125,7 @@ npm run preview  # 预览生产构建
 
 ### 5. 测试连接
 
-**后端API测试**:
+后端API测试:
 ```bash
 # 健康检查
 curl http://localhost:8080/health
@@ -153,7 +147,7 @@ curl -X POST http://localhost:8080/call \
   }'
 ```
 
-**前端界面测试**:
+前端界面测试:
 ```bash
 # 访问聊天界面
 open http://localhost:3000
@@ -252,11 +246,12 @@ sequenceDiagram
 - `maa_depot_management` - 仓库管理  
 - `maa_operator_box` - 干员管理
 
-### 系统功能 (4个)
+### 系统功能 (5个)
 - `maa_closedown` - 游戏关闭
 - `maa_custom_task` - 自定义任务
 - `maa_video_recognition` - 视频识别
 - `maa_system_management` - 系统管理
+- `maa_take_screenshot` - 游戏截图
 
 ## 📱 PlayCover 设置指南
 
@@ -407,7 +402,7 @@ curl -X POST http://localhost:8080/call \
 
 **启用详细日志**:
 ```bash
-LOG_LEVEL=debug cargo run --bin maa-server --features with-maa-core
+LOG_LEVEL=debug cargo run --bin maa-intelligent-server
 ```
 
 **查看 MAA 回调**:
@@ -425,7 +420,7 @@ curl http://localhost:8080/status | jq
 maa-remote-server/
 ├── src/
 │   ├── bin/
-│   │   └── maa-server-singleton.rs    # 🚀 服务器入口
+│   │   └── maa-intelligent-server.rs  # 🚀 服务器入口
 │   ├── maa_core/                      # 🎯 MAA Core 模块
 │   │   ├── mod.rs                     # 实例管理和回调
 │   │   ├── worker.rs                  # ⭐ 单线程工作者
@@ -556,4 +551,21 @@ maa-remote-server/
 
 ---
 
-**维护状态**: 积极维护 | **版本**: 1.0.0 | **文档更新**: 2025-08-19
+**项目状态**: ✅ 积极维护 | **版本**: 1.0.0 | **最后更新**: 2025-08-20
+
+## 🚀 快速启动命令
+
+```bash
+# 1. 克隆并启动后端
+git clone --recursive https://github.com/your-repo/maa-remote-server.git
+cd maa-remote-server
+cp .env.example .env  # 编辑配置
+cargo run --bin maa-intelligent-server
+
+# 2. 启动前端 (新终端)
+cd maa-chat-ui
+npm install && npm run dev
+
+# 3. 访问应用
+open http://localhost:3000
+```

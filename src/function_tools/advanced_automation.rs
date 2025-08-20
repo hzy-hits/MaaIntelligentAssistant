@@ -9,8 +9,8 @@
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
-use crate::maa_core::{execute_roguelike, execute_copilot, execute_sss_copilot, execute_reclamation};
 use super::types::{FunctionDefinition, FunctionResponse, MaaError};
+use super::queue_client::MaaQueueClient;
 use std::time::Instant;
 
 /// 创建肉鸽增强工具定义
@@ -73,7 +73,7 @@ pub fn create_roguelike_enhanced_definition() -> FunctionDefinition {
 }
 
 /// 处理肉鸽增强任务
-pub async fn handle_roguelike_enhanced(args: Value) -> FunctionResponse {
+pub async fn handle_roguelike_enhanced(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("🃏 处理肉鸽增强任务");
     
@@ -92,9 +92,9 @@ pub async fn handle_roguelike_enhanced(args: Value) -> FunctionResponse {
     debug!("肉鸽参数: theme={}, mode={}, starts_count={}", 
            theme, mode, starts_count);
 
-    match execute_roguelike(theme, mode, starts_count).await {
+    match queue_client.roguelike(theme.to_string(), mode, starts_count).await {
         Ok(result) => {
-            info!("✅ 肉鸽增强任务完成");
+            info!("肉鸽增强任务完成");
             let response_data = json!({
                 "status": "success",
                 "message": format!("肉鸽 {} 任务完成", theme),
@@ -108,7 +108,7 @@ pub async fn handle_roguelike_enhanced(args: Value) -> FunctionResponse {
         },
         Err(e) => {
             let error = MaaError::maa_core_error(&format!("肉鸽任务失败: {}", e), Some("检查肉鸽模式是否已开放，理智是否充足"));
-            debug!("❌ 肉鸽任务失败: {}", e);
+            debug!("肉鸽任务失败: {}", e);
             FunctionResponse::error("maa_roguelike_enhanced", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -155,9 +155,9 @@ pub fn create_copilot_enhanced_definition() -> FunctionDefinition {
 }
 
 /// 处理作业增强任务
-pub async fn handle_copilot_enhanced(args: Value) -> FunctionResponse {
+pub async fn handle_copilot_enhanced(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
-    info!("📋 处理作业增强任务");
+    info!("处理作业增强任务");
     
     let filename = args.get("filename")
         .and_then(|v| v.as_str())
@@ -174,9 +174,9 @@ pub async fn handle_copilot_enhanced(args: Value) -> FunctionResponse {
     debug!("作业参数: filename={}, formation={}, stage_name={}", 
            filename, formation, stage_name);
 
-    match execute_copilot(filename, formation).await {
+    match queue_client.copilot(filename.to_string(), formation).await {
         Ok(result) => {
-            info!("✅ 作业增强任务完成");
+            info!("作业增强任务完成");
             let response_data = json!({
                 "status": "success", 
                 "message": "作业任务已完成",
@@ -190,7 +190,7 @@ pub async fn handle_copilot_enhanced(args: Value) -> FunctionResponse {
         },
         Err(e) => {
             let error = MaaError::maa_core_error(&format!("作业任务失败: {}", e), Some("检查作业文件路径和关卡名称"));
-            debug!("❌ 作业任务失败: {}", e);
+            debug!("作业任务失败: {}", e);
             FunctionResponse::error("maa_copilot_enhanced", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -234,7 +234,7 @@ pub fn create_sss_copilot_definition() -> FunctionDefinition {
 }
 
 /// 处理SSS作业任务
-pub async fn handle_sss_copilot(args: Value) -> FunctionResponse {
+pub async fn handle_sss_copilot(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("🌟 处理SSS作业任务");
     
@@ -259,9 +259,9 @@ pub async fn handle_sss_copilot(args: Value) -> FunctionResponse {
     debug!("SSS作业参数: stage_name={}, formation={}, loop_times={}", 
            stage_name, formation, loop_times);
 
-    match execute_sss_copilot(&format!("sss_{}.json", stage_name), loop_times).await {
+    match queue_client.sss_copilot(format!("sss_{}.json", stage_name), loop_times).await {
         Ok(result) => {
-            info!("✅ SSS作业任务完成: {}", stage_name);
+            info!("SSS作业任务完成: {}", stage_name);
             let response_data = json!({
                 "status": "success",
                 "message": format!("SSS关卡 {} 作业完成", stage_name),
@@ -275,7 +275,7 @@ pub async fn handle_sss_copilot(args: Value) -> FunctionResponse {
         },
         Err(e) => {
             let error = MaaError::maa_core_error(&format!("SSS作业任务失败: {}", e), Some("检查SSS作业文件和关卡名称"));
-            debug!("❌ SSS作业任务失败: {}", e);
+            debug!("SSS作业任务失败: {}", e);
             FunctionResponse::error("maa_sss_copilot", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -320,7 +320,7 @@ pub fn create_reclamation_definition() -> FunctionDefinition {
 }
 
 /// 处理生息演算任务
-pub async fn handle_reclamation(args: Value) -> FunctionResponse {
+pub async fn handle_reclamation(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("🌱 处理生息演算任务");
     
@@ -339,9 +339,9 @@ pub async fn handle_reclamation(args: Value) -> FunctionResponse {
 
     debug!("生息演算参数: theme={}, mode={}, tools={:?}", theme, mode, tool_to_craft);
 
-    match execute_reclamation(theme, mode).await {
+    match queue_client.reclamation(theme.to_string(), mode).await {
         Ok(result) => {
-            info!("✅ 生息演算任务完成: {}", theme);
+            info!("生息演算任务完成: {}", theme);
             let response_data = json!({
                 "status": "success",
                 "message": format!("生息演算 {} 任务完成", theme),
@@ -354,7 +354,7 @@ pub async fn handle_reclamation(args: Value) -> FunctionResponse {
         },
         Err(e) => {
             let error = MaaError::maa_core_error(&format!("生息演算任务失败: {}", e), Some("检查生息演算模式是否已开放"));
-            debug!("❌ 生息演算任务失败: {}", e);
+            debug!("生息演算任务失败: {}", e);
             FunctionResponse::error("maa_reclamation", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }

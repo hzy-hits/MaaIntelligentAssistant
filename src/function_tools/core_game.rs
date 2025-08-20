@@ -87,7 +87,7 @@ pub async fn handle_startup(args: Value, queue_client: &MaaQueueClient) -> Funct
 
     match queue_client.startup(client_type.to_string(), start_app, close_app).await {
         Ok(result) => {
-            info!("✅ 游戏启动任务完成");
+            info!("游戏启动任务完成");
             
             let response_data = json!({
                 "status": "success",
@@ -107,7 +107,7 @@ pub async fn handle_startup(args: Value, queue_client: &MaaQueueClient) -> Funct
                 &format!("游戏启动失败: {}", e),
                 Some("请检查游戏客户端是否已安装且设备已连接")
             );
-            debug!("❌ 游戏启动失败: {}", e);
+            debug!("游戏启动失败: {}", e);
             FunctionResponse::error("maa_startup", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -221,15 +221,40 @@ pub async fn handle_combat_enhanced(args: Value, queue_client: &MaaQueueClient) 
 
     match queue_client.combat(stage.to_string(), medicine, stone, times).await {
         Ok(result) => {
-            info!("✅ 增强战斗任务完成: {}", stage);
+            // 检查MAA Worker返回的状态
+            let worker_status = result.get("status").and_then(|s| s.as_str()).unwrap_or("unknown");
             
-            let response_data = json!({
-                "status": "success",
-                "message": format!("关卡 {} 战斗任务完成", stage),
-                "stage": stage,
-                "times_completed": times,
-                "details": result
-            });
+            let response_data = match worker_status {
+                "running" => {
+                    info!("增强战斗任务已启动: {} (后台执行中)", stage);
+                    json!({
+                        "status": "running",
+                        "message": format!("关卡 {} 战斗任务已启动，正在后台执行", stage),
+                        "stage": stage,
+                        "times_requested": times,
+                        "details": result
+                    })
+                },
+                "completed" | "success" => {
+                    info!("增强战斗任务完成: {}", stage);
+                    json!({
+                        "status": "success",
+                        "message": format!("关卡 {} 战斗任务完成", stage),
+                        "stage": stage,
+                        "times_completed": times,
+                        "details": result
+                    })
+                },
+                _ => {
+                    info!("增强战斗任务状态: {} - {}", stage, worker_status);
+                    json!({
+                        "status": worker_status,
+                        "message": format!("关卡 {} 任务状态: {}", stage, worker_status),
+                        "stage": stage,
+                        "details": result
+                    })
+                }
+            };
             
             let resource_usage = ResourceUsage {
                 sanity_used: Some(times * 6), // 估算理智消耗
@@ -251,7 +276,7 @@ pub async fn handle_combat_enhanced(args: Value, queue_client: &MaaQueueClient) 
                 &format!("战斗任务失败: {}", e),
                 Some("请检查关卡名称是否正确、理智是否足够、设备连接是否正常")
             );
-            debug!("❌ 战斗任务失败: {}", e);
+            debug!("战斗任务失败: {}", e);
             FunctionResponse::error("maa_combat_enhanced", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -322,7 +347,7 @@ pub fn create_recruit_enhanced_definition() -> FunctionDefinition {
 /// 处理增强招募任务
 pub async fn handle_recruit_enhanced(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
-    info!("🎯 处理增强招募任务");
+    info!("处理增强招募任务");
     
     let times = args.get("times")
         .and_then(|v| v.as_i64())
@@ -341,7 +366,7 @@ pub async fn handle_recruit_enhanced(args: Value, queue_client: &MaaQueueClient)
 
     match queue_client.recruit(times, expedite, skip_robot).await {
         Ok(result) => {
-            info!("✅ 增强招募任务完成");
+            info!("增强招募任务完成");
             let response_data = json!({
                 "status": "success",
                 "message": "招募任务已完成",
@@ -357,7 +382,7 @@ pub async fn handle_recruit_enhanced(args: Value, queue_client: &MaaQueueClient)
                 &format!("招募任务失败: {}", e),
                 Some("请检查招募票数量和网络连接")
             );
-            debug!("❌ 招募任务失败: {}", e);
+            debug!("招募任务失败: {}", e);
             FunctionResponse::error("maa_recruit_enhanced", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -429,7 +454,7 @@ pub fn create_infrastructure_enhanced_definition() -> FunctionDefinition {
 /// 处理增强基建任务
 pub async fn handle_infrastructure_enhanced(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
-    info!("🏢 处理增强基建任务");
+    info!("处理增强基建任务");
     
     let default_facility = json!(["Mfg", "Trade", "Power"]);
     let facility = args.get("facility").unwrap_or(&default_facility);
@@ -453,7 +478,7 @@ pub async fn handle_infrastructure_enhanced(args: Value, queue_client: &MaaQueue
     };
     match queue_client.infrastructure(facility_list, "NotUse".to_string(), 0.3).await {
         Ok(result) => {
-            info!("✅ 增强基建任务完成");
+            info!("增强基建任务完成");
             let response_data = json!({
                 "status": "success",
                 "message": "基建任务已完成", 
@@ -469,7 +494,7 @@ pub async fn handle_infrastructure_enhanced(args: Value, queue_client: &MaaQueue
                 &format!("基建任务失败: {}", e),
                 Some("请检查基建设置和游戏状态")
             );
-            debug!("❌ 基建任务失败: {}", e);
+            debug!("基建任务失败: {}", e);
             FunctionResponse::error("maa_infrastructure_enhanced", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }

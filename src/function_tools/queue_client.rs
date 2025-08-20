@@ -288,8 +288,8 @@ impl MaaQueueClient {
     
     /// 通用的任务发送和响应处理
     async fn send_task<T>(&self, task: MaaTask, response_rx: oneshot::Receiver<Result<T>>) -> Result<T> {
-        // 发送任务到MAA工作线程
-        if let Err(e) = self.task_sender.send(task) {
+        // 发送任务到MAA工作线程（自动选择优先级）
+        if let Err(e) = self.task_sender.send_auto(task) {
             error!("无法发送任务到MAA工作线程: {:?}", e);
             return Err(anyhow::anyhow!("MAA工作线程不可用"));
         }

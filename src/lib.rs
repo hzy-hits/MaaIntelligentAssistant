@@ -20,7 +20,7 @@ pub use ai_client::{
 pub use maa_adapter::{MaaConfig, MaaStatus, MaaError, MaaResult};
 pub use function_tools::{
     FunctionDefinition, FunctionCall as MaaFunctionCall, FunctionResponse,
-    EnhancedMaaFunctionServer, create_enhanced_function_server
+    EnhancedMaaFunctionHandler, create_enhanced_function_handler
 };
 // operator_manager exports REMOVED
 pub use copilot_matcher::{

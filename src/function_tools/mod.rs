@@ -9,13 +9,13 @@ pub mod core_game;
 pub mod advanced_automation;
 pub mod support_features;  
 pub mod system_features;
-pub mod server;
+pub mod handler;
 // pub mod context; // REMOVED - 未使用的上下文管理模块
 
 // 重新导出核心类型
 pub use types::{FunctionDefinition, FunctionCall, FunctionResponse, TaskContext, GameState};
 
-// 重新导出服务器
-pub use server::{EnhancedMaaFunctionServer, create_enhanced_function_server};
+// 重新导出Function Calling处理器
+pub use handler::{EnhancedMaaFunctionHandler, create_enhanced_function_handler};
 
 // context exports REMOVED - 功能未被实际使用

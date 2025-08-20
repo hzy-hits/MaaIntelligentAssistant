@@ -9,8 +9,8 @@
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
-use crate::maa_core::{execute_closedown, execute_custom_task, execute_video_recognition, execute_system_management};
 use super::types::{FunctionDefinition, FunctionResponse, MaaError};
+use super::queue_client::MaaQueueClient;
 use std::time::Instant;
 
 /// 创建关闭游戏工具定义
@@ -50,7 +50,7 @@ pub fn create_closedown_definition() -> FunctionDefinition {
 }
 
 /// 处理关闭游戏任务
-pub async fn handle_closedown(args: Value) -> FunctionResponse {
+pub async fn handle_closedown(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("🔴 处理游戏关闭任务");
     
@@ -72,7 +72,7 @@ pub async fn handle_closedown(args: Value) -> FunctionResponse {
     debug!("关闭参数: enable={}, force={}, save_state={}, timeout={}", 
            enable, force, save_state, timeout);
 
-    match execute_closedown().await {
+    match queue_client.closedown().await {
         Ok(result) => {
             info!("游戏关闭任务完成");
             let response_data = json!({
@@ -137,7 +137,7 @@ pub fn create_custom_task_definition() -> FunctionDefinition {
 }
 
 /// 处理自定义任务
-pub async fn handle_custom_task(args: Value) -> FunctionResponse {
+pub async fn handle_custom_task(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("处理自定义任务");
     
@@ -161,7 +161,7 @@ pub async fn handle_custom_task(args: Value) -> FunctionResponse {
     debug!("自定义任务参数: task_name={}, entry={}, timeout={}", 
            task_name, entry, timeout);
 
-    match execute_custom_task(task_name, "{}").await {
+    match queue_client.custom_task(task_name.to_string(), "{}".to_string()).await {
         Ok(result) => {
             info!("自定义任务完成: {}", task_name);
             let response_data = json!({
@@ -227,7 +227,7 @@ pub fn create_video_recognition_definition() -> FunctionDefinition {
 }
 
 /// 处理视频识别任务
-pub async fn handle_video_recognition(args: Value) -> FunctionResponse {
+pub async fn handle_video_recognition(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("🎥 处理视频识别任务");
     
@@ -255,7 +255,7 @@ pub async fn handle_video_recognition(args: Value) -> FunctionResponse {
     debug!("视频识别参数: video_path={}, recognition_type={}, enable_ocr={}", 
            video_path, recognition_type, enable_ocr);
 
-    match execute_video_recognition(&video_path).await {
+    match queue_client.video_recognition(video_path.to_string()).await {
         Ok(result) => {
             info!("视频识别任务完成: {}", video_path);
             let response_data = json!({
@@ -314,7 +314,7 @@ pub fn create_system_management_definition() -> FunctionDefinition {
 }
 
 /// 处理系统管理任务
-pub async fn handle_system_management(args: Value) -> FunctionResponse {
+pub async fn handle_system_management(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("⚙️ 处理系统管理任务");
     
@@ -339,7 +339,7 @@ pub async fn handle_system_management(args: Value) -> FunctionResponse {
         "force": force
     });
 
-    match execute_system_management(&action).await {
+    match queue_client.system_management(action.to_string()).await {
         Ok(result) => {
             info!("系统管理任务完成: {} -> {}", action, component);
             let response_data = json!({
@@ -357,6 +357,78 @@ pub async fn handle_system_management(args: Value) -> FunctionResponse {
             let error = MaaError::maa_core_error(&format!("系统管理操作失败: {}", e), Some("检查系统状态和权限"));
             debug!("系统管理操作失败: {}", e);
             FunctionResponse::error("maa_system_management", error)
+                .with_execution_time(start_time.elapsed().as_millis() as u64)
+        }
+    }
+}
+
+/// 创建截图工具定义
+pub fn create_screenshot_definition() -> FunctionDefinition {
+    FunctionDefinition {
+        name: "maa_take_screenshot".to_string(),
+        description: "拍摄MAA当前游戏画面截图，展示牛牛眼中的世界".to_string(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "save_to_disk": {
+                    "type": "boolean",
+                    "description": "是否保存截图到磁盘",
+                    "default": true
+                },
+                "include_base64": {
+                    "type": "boolean",
+                    "description": "是否在响应中包含base64编码的图片数据",
+                    "default": true
+                }
+            },
+            "required": []
+        }),
+    }
+}
+
+/// 处理截图任务 (简化版本)
+pub async fn handle_screenshot(args: Value, queue_client: &crate::function_tools::queue_client::MaaQueueClient) -> FunctionResponse {
+    let start_time = Instant::now();
+    info!("处理截图任务");
+    
+    let include_base64 = args.get("include_base64")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    match queue_client.take_screenshot().await {
+        Ok(image_data) => {
+            info!("获取到MAA截图数据: {} bytes", image_data.len());
+            
+            use crate::maa_core::screenshot;
+            match screenshot::save_maa_screenshot(image_data) {
+                Ok(screenshot_info) => {
+                    let mut response_data = json!({
+                        "status": "success",
+                        "message": "截图完成",
+                        "screenshot_id": screenshot_info.id,
+                        "timestamp": screenshot_info.timestamp,
+                        "file_size": screenshot_info.file_size
+                    });
+                    
+                    if include_base64 {
+                        if let Some(thumbnail_base64) = screenshot_info.thumbnail_base64 {
+                            response_data["base64_data"] = json!(thumbnail_base64);
+                        }
+                    }
+                    
+                    FunctionResponse::success("maa_take_screenshot", response_data)
+                        .with_execution_time(start_time.elapsed().as_millis() as u64)
+                },
+                Err(e) => {
+                    let error = MaaError::maa_core_error(&format!("保存截图失败: {}", e), Some("检查磁盘空间和权限"));
+                    FunctionResponse::error("maa_take_screenshot", error)
+                        .with_execution_time(start_time.elapsed().as_millis() as u64)
+                }
+            }
+        },
+        Err(e) => {
+            let error = MaaError::maa_core_error(&format!("MAA截图失败: {}", e), Some("检查MAA连接状态和游戏窗口"));
+            FunctionResponse::error("maa_take_screenshot", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
     }

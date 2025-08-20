@@ -49,6 +49,9 @@ reqwest = { version = "0.11", features = ["json"] }
 anyhow = "1.0"
 thiserror = "1.0"
 
+# 图片处理
+image = { version = "0.24", features = ["png", "jpeg"] }
+
 # 日志
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -75,17 +78,17 @@ tokio-test = "0.4"
 tempfile = "3.8"
 
 [[bin]]
-name = "maa-server"
-path = "src/bin/maa-server-singleton.rs"
+name = "maa-intelligent-server"
+path = "src/bin/maa-intelligent-server.rs"
 
 [lib]
 name = "maa_intelligent_server"
 path = "src/lib.rs"
 
 [features]
-default = ["server"]
+default = ["server", "with-maa-core"]
 server = []
-# 真实 MAA Core 集成特性 - 生产模式
+# 真实 MAA Core 集成特性 - 生产模式  
 with-maa-core = ["maa-sys/runtime"]
 # 开发模式特性 - 模拟 MAA 功能
 stub-mode = []

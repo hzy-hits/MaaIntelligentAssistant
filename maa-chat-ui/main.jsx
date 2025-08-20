@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 // 现代化的MAA聊天组件 - 基于 assistant-ui 设计风格
 const MAAChat = () => {
+  console.log('🎬 MAA聊天组件开始初始化')
+  
   const [messages, setMessages] = useState([
     {
       id: 1,
@@ -15,27 +19,126 @@ const MAAChat = () => {
   const [isConnected, setIsConnected] = useState(false)
   const messagesEndRef = useRef(null)
 
+  // 处理重置按钮（需要先定义，才能在useEffect中调用）
+  const handleReset = async () => {
+    console.log('🔄 开始重置对话...')
+    
+    try {
+      // 发送重置请求到后端
+      const response = await fetch('http://localhost:8080/chat/reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log('✅ 后端重置成功:', data)
+        
+        // 重置消息列表，使用后端返回的欢迎消息
+        setMessages([{
+          id: Date.now(),
+          role: 'assistant',
+          content: data.choices[0].message.content
+        }])
+        
+        console.log('🎉 对话历史已清除')
+      } else {
+        throw new Error(`重置失败: ${response.status}`)
+      }
+    } catch (error) {
+      console.error('❌ 重置失败:', error)
+      
+      // 即使后端重置失败，也清空前端消息列表
+      setMessages([{
+        id: Date.now(),
+        role: 'assistant', 
+        content: '对话已重置！我是MAA智能助手，可以帮您控制明日方舟自动化助手进行各种游戏操作。\n\n请问有什么可以为您效劳的吗？'
+      }])
+      
+      console.log('⚠️ 使用默认消息重置对话')
+    }
+  }
+
+  // 页面加载时重置对话
+  useEffect(() => {
+    console.log('🚀 页面加载，重置对话历史')
+    handleReset()
+  }, []) // 只在组件挂载时执行一次
+
   // 检查MAA连接
   useEffect(() => {
     const checkConnection = async () => {
+      console.log('🔍 开始检查MAA后端连接...')
+      console.log('🌐 尝试连接:', 'http://localhost:8080/health')
+      
       try {
+        console.log('📡 发送请求到后端...')
         const response = await fetch('http://localhost:8080/health')
+        
+        console.log('📦 收到响应:', {
+          status: response.status,
+          ok: response.ok,
+          statusText: response.statusText,
+          url: response.url
+        })
+        
         if (response.ok) {
-          setIsConnected(true)
-          updateStatus('connected')
+          const data = await response.json()
+          console.log('✅ 后端响应数据:', data)
+          
+          // 检查MAA是否已经准备就绪
+          const maaReady = data.status === 'ready' && 
+                          data.maa_core && 
+                          data.maa_core.connected === true
+          
+          if (maaReady) {
+            console.log('🎉 MAA设备连接成功!')
+            setIsConnected(true)
+            updateStatus('connected')
+          } else if (data.status === 'initializing') {
+            console.log('🔄 MAA正在初始化设备连接...')
+            setIsConnected(false)
+            updateStatus('loading')
+          } else {
+            console.log('⚠️ MAA设备未连接:', data.maa_core)
+            setIsConnected(false)
+            updateStatus('disconnected')
+          }
         } else {
+          console.log('❌ 后端响应错误:', response.status, response.statusText)
           setIsConnected(false)
           updateStatus('disconnected')
         }
       } catch (error) {
+        console.error('🚨 连接失败错误详情:', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        })
+        console.log('🔧 可能的原因:')
+        console.log('  1. 后端服务器未启动 (检查 http://localhost:8080)')
+        console.log('  2. 网络连接问题')
+        console.log('  3. 浏览器CORS限制')
+        console.log('  4. 防火墙阻止连接')
+        
         setIsConnected(false)
         updateStatus('disconnected')
       }
     }
 
+    console.log('🚀 初始化MAA连接检查')
     checkConnection()
-    const interval = setInterval(checkConnection, 5000)
-    return () => clearInterval(interval)
+    const interval = setInterval(() => {
+      console.log('⏰ 定期检查连接 (每5秒)')
+      checkConnection()
+    }, 5000)
+    
+    return () => {
+      console.log('🛑 清理连接检查定时器')
+      clearInterval(interval)
+    }
   }, [])
 
   // 滚动到底部
@@ -45,25 +148,37 @@ const MAAChat = () => {
 
   // 更新状态
   const updateStatus = (status) => {
+    console.log('🔄 更新状态:', status)
+    
     const statusEl = document.getElementById('status')
     const infoEl = document.getElementById('info')
+    
+    console.log('🎯 DOM元素:', {
+      statusEl: !!statusEl,
+      infoEl: !!infoEl
+    })
     
     if (statusEl && infoEl) {
       statusEl.className = `status ${status}`
       switch (status) {
         case 'connected':
-          statusEl.innerHTML = '<div class="status-dot"></div>MAA后端已连接'
+          statusEl.innerHTML = '<div class="status-dot"></div>MAA设备已连接'
           infoEl.textContent = '可以开始对话'
+          console.log('🟢 状态设置为: 已连接')
           break
         case 'disconnected':
-          statusEl.innerHTML = '<div class="status-dot"></div>MAA后端未连接'
-          infoEl.textContent = '请确保后端服务运行在 localhost:8080'
+          statusEl.innerHTML = '<div class="status-dot"></div>MAA设备未连接'
+          infoEl.textContent = '请检查设备连接或后端服务'
+          console.log('🔴 状态设置为: 未连接')
           break
         case 'loading':
-          statusEl.innerHTML = '<div class="status-dot"></div>处理中...'
-          infoEl.textContent = '正在执行MAA操作'
+          statusEl.innerHTML = '<div class="status-dot"></div>正在初始化MAA...'
+          infoEl.textContent = '正在连接设备，请稍候'
+          console.log('🟡 状态设置为: 初始化中')
           break
       }
+    } else {
+      console.warn('⚠️ 无法找到状态DOM元素')
     }
   }
 
@@ -83,16 +198,47 @@ const MAAChat = () => {
 
   // 通过后端代理调用AI聊天
   const callAIChat = async (messages, tools) => {
+    // 过滤消息：排除截图消息，避免发送大量base64数据
+    const filteredMessages = messages
+      .filter(msg => {
+        // 排除截图类型的消息
+        if (msg.type === 'screenshot' || msg.type === 'screenshot_ref' || msg.type === 'screenshot_display') {
+          console.log('🚫 过滤截图消息，避免发送base64数据')
+          return false
+        }
+        
+        // 排除包含大量数据的消息
+        if (typeof msg.content === 'string' && msg.content.length > 10000) {
+          console.log('🚫 过滤超长消息，长度:', msg.content.length)
+          return false
+        }
+        
+        // 排除包含base64的消息
+        if (typeof msg.content === 'string' && 
+            (msg.content.includes('base64') || msg.content.includes('data:image'))) {
+          console.log('🚫 过滤包含图片数据的消息')
+          return false
+        }
+        
+        return true
+      })
+      .map(msg => ({
+        role: msg.role,
+        content: typeof msg.content === 'string' ? msg.content : 
+                 typeof msg.content === 'object' ? msg.content.text || JSON.stringify(msg.content) :
+                 String(msg.content)
+      }))
+      .slice(-8) // 只取最近8条消息
+    
+    console.log(`📤 发送消息给AI: ${filteredMessages.length} 条 (原始: ${messages.length} 条)`)
+    
     const response = await fetch('http://localhost:8080/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        messages: messages.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        })),
+        messages: filteredMessages,
         tools: tools,
         system_prompt: '你是MAA（明日方舟自动化助手）的智能控制助手。用户可以用自然语言向你描述想要执行的操作，你需要调用相应的MAA工具来完成。请用友好、简洁的中文回复。'
       })
@@ -176,15 +322,43 @@ const MAAChat = () => {
             if (typeof result.result === 'string') {
               resultText = `✅ ${result.result}`
             } else {
-              resultText = `✅ 执行成功\n\n\`\`\`json\n${JSON.stringify(result.result, null, 2)}\n\`\`\``
+              // 特殊处理截图结果
+              if (functionName === 'maa_take_screenshot' && result.result.base64_data && result.result.status === 'success') {
+                // 为Function Calling的截图创建特殊消息
+                const screenshotId = result.result.screenshot_id;
+                const originalImageUrl = `http://localhost:8080/screenshot/${screenshotId}/original`;
+                
+                // 创建截图消息，使用base64 URL但不保存到历史
+                const screenshotUrl = `data:image/png;base64,${result.result.base64_data}`;
+                
+                setMessages(prev => [...prev, {
+                  id: Date.now() + 2,
+                  role: 'assistant',
+                  type: 'screenshot_display',
+                  content: {
+                    text: `✅ 截图完成！\n\n*这是MAA当前看到的游戏画面，点击图片查看原图*\n\n**截图信息:**\n- 截图ID: ${screenshotId}\n- 文件大小: ${Math.round(result.result.file_size / 1024)}KB\n- 时间戳: ${new Date(result.result.timestamp).toLocaleString()}`,
+                    screenshotUrl: screenshotUrl,
+                    originalUrl: originalImageUrl,
+                    screenshotId: screenshotId
+                  }
+                }]);
+                
+                // 跳过后面的普通结果显示逻辑
+                resultText = null;
+              } else {
+                resultText = `✅ 执行成功\n\n\`\`\`json\n${JSON.stringify(result.result, null, 2)}\n\`\`\``
+              }
             }
           }
           
-          setMessages(prev => [...prev, {
-            id: Date.now() + 2,
-            role: 'assistant',
-            content: resultText
-          }])
+          // 只有非截图结果才显示普通的结果文本
+          if (resultText) {
+            setMessages(prev => [...prev, {
+              id: Date.now() + 2,
+              role: 'assistant',
+              content: resultText
+            }])
+          }
           
           // AI的额外回复
           if (choice.message.content) {
@@ -229,13 +403,71 @@ const MAAChat = () => {
     }
   }
 
+  // 处理截图按钮
+  const handleScreenshot = async () => {
+    if (!isConnected || isLoading) return
+
+    setIsLoading(true)
+    updateStatus('loading')
+
+    try {
+      // 调用MAA截图工具
+      const response = await callMAAFunction('maa_take_screenshot', {})
+      
+      console.log('截图响应数据:', response)
+      
+      if (response.success && response.result && response.result.status === 'success') {
+        console.log('截图base64数据长度:', response.result.base64_data?.length)
+        
+        // 验证base64数据
+        const base64Data = response.result.base64_data;
+        if (!base64Data || base64Data.length === 0) {
+          throw new Error('截图数据为空');
+        }
+        
+        // 创建带有点击预览功能的截图消息
+        const screenshotId = response.result.screenshot_id;
+        const originalImageUrl = `http://localhost:8080/screenshot/${screenshotId}/original`;
+        
+        // 创建截图消息，临时显示但不发送给AI
+        const screenshotUrl = `data:image/png;base64,${base64Data}`;
+        
+        setMessages(prev => [...prev, {
+          id: Date.now(),
+          role: 'assistant',
+          type: 'screenshot_display',
+          content: {
+            text: `截图完成！\n\n*这是MAA当前看到的游戏画面，点击图片查看原图*\n\n**截图信息:**\n- 截图ID: ${screenshotId}\n- 文件大小: ${Math.round(response.result.file_size / 1024)}KB\n- 时间戳: ${new Date(response.result.timestamp).toLocaleString()}`,
+            screenshotUrl: screenshotUrl,
+            originalUrl: originalImageUrl,
+            screenshotId: screenshotId
+          }
+        }])
+      } else {
+        console.error('截图失败响应:', response)
+        throw new Error(response.result?.message || response.message || '截图失败')
+      }
+    } catch (error) {
+      console.error('截图失败:', error)
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        role: 'assistant',
+        content: `截图失败：${error.message}`
+      }])
+    } finally {
+      setIsLoading(false)
+      updateStatus(isConnected ? 'connected' : 'disconnected')
+    }
+  }
+
+
   return (
     <>
       <div className="chat-interface">
         {/* 消息列表 */}
         <div className="messages-container">
           <div className="messages-list">
-            {messages.map((message) => (
+            {messages.slice(-20).map((message) => (  /* 只显示最近20条消息以提升性能 */
               <div key={message.id} className={`message-group ${message.role}`}>
                 <div className="message-avatar">
                   {message.role === 'assistant' ? (
@@ -250,13 +482,72 @@ const MAAChat = () => {
                 </div>
                 <div className="message-content">
                   <div className={`message-bubble ${message.role}`}>
-                    {message.content}
+                    {(message.type === 'screenshot' || message.type === 'screenshot_display') ? (
+                      <div className="screenshot-message">
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          skipHtml={true}
+                        >
+                          {message.content.text}
+                        </ReactMarkdown>
+                        <div className="screenshot-container">
+                          <img 
+                            src={message.content.screenshotUrl || `data:image/jpeg;base64,${message.content.thumbnailBase64}`}
+                            alt="MAA截图"
+                            className="screenshot-thumbnail"
+                            onClick={() => window.open(message.content.originalUrl, '_blank')}
+                            title="点击查看原图"
+                          />
+                          <div className="screenshot-overlay">
+                            <span>点击查看原图</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        skipHtml={true}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    )}
                   </div>
                 </div>
               </div>
             ))}
             <div ref={messagesEndRef} />
           </div>
+        </div>
+        
+        {/* 工具栏 */}
+        <div className="toolbar">
+          <button
+            onClick={handleScreenshot}
+            disabled={!isConnected || isLoading}
+            className={`tool-button screenshot-button ${(!isConnected || isLoading) ? 'disabled' : ''}`}
+            title="截图"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14.828 14.828a4 4 0 0 1-5.656 0"></path>
+              <path d="M9 9a3 3 0 1 1 6 0c0 .833-.333 1.5-1 2s-1.5.5-2 .5-.333-.167-1-.5-1-1.167-1-2z"></path>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <path d="M21 10a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v1"></path>
+              <path d="M7 8V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            截图
+          </button>
+          <button
+            onClick={handleReset}
+            className="tool-button reset-button"
+            title="重置对话"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="23,4 23,10 17,10"></polyline>
+              <polyline points="1,20 1,14 7,14"></polyline>
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path>
+            </svg>
+            重置
+          </button>
         </div>
         
         {/* 输入区域 */}
@@ -384,6 +675,61 @@ const MAAChat = () => {
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         }
 
+        /* Markdown 样式 */
+        .message-bubble h1, .message-bubble h2, .message-bubble h3 {
+          margin: 0.5rem 0;
+          font-weight: 600;
+        }
+
+        .message-bubble p {
+          margin: 0.25rem 0;
+        }
+
+        .message-bubble pre {
+          background: rgba(0, 0, 0, 0.05);
+          padding: 0.5rem;
+          border-radius: 0.375rem;
+          overflow-x: auto;
+          margin: 0.5rem 0;
+        }
+
+        .message-bubble code {
+          background: rgba(0, 0, 0, 0.05);
+          padding: 0.125rem 0.25rem;
+          border-radius: 0.25rem;
+          font-size: 0.875em;
+        }
+
+        .message-bubble pre code {
+          background: none;
+          padding: 0;
+        }
+
+        .message-bubble img {
+          max-width: 100%;
+          height: auto;
+          border-radius: 0.5rem;
+          margin: 0.5rem 0;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .message-bubble ul, .message-bubble ol {
+          margin: 0.5rem 0;
+          padding-left: 1.5rem;
+        }
+
+        .message-bubble li {
+          margin: 0.25rem 0;
+        }
+
+        .message-bubble blockquote {
+          border-left: 3px solid var(--border);
+          padding-left: 1rem;
+          margin: 0.5rem 0;
+          font-style: italic;
+          opacity: 0.8;
+        }
+
         .input-container {
           padding: 1.5rem;
           border-top: 1px solid var(--border);
@@ -462,6 +808,123 @@ const MAAChat = () => {
           color: var(--muted-foreground);
           cursor: not-allowed;
           box-shadow: none;
+        }
+
+        /* 工具栏样式 */
+        .toolbar {
+          padding: 1rem 1.5rem 0;
+          display: flex;
+          gap: 0.75rem;
+          justify-content: center;
+          border-top: 1px solid var(--border);
+          background: var(--background);
+        }
+
+        .tool-button {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.5rem 1rem;
+          border: 1px solid var(--border);
+          border-radius: 0.75rem;
+          background: var(--card);
+          color: var(--card-foreground);
+          font-size: 0.875rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .tool-button:hover:not(.disabled) {
+          background: var(--accent);
+          color: var(--accent-foreground);
+          transform: translateY(-1px);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        }
+
+        .tool-button:active:not(.disabled) {
+          transform: translateY(0);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .tool-button.disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+          background: var(--muted);
+          color: var(--muted-foreground);
+        }
+
+        .screenshot-button {
+          background: linear-gradient(135deg, #10b981, #059669);
+          color: white;
+          border: none;
+        }
+
+        .screenshot-button:hover:not(.disabled) {
+          background: linear-gradient(135deg, #059669, #047857);
+          color: white;
+        }
+
+        .reset-button {
+          background: linear-gradient(135deg, #f59e0b, #d97706);
+          color: white;
+          border: none;
+        }
+
+        .reset-button:hover:not(.disabled) {
+          background: linear-gradient(135deg, #d97706, #b45309);
+          color: white;
+        }
+
+        /* 截图样式 */
+        .screenshot-message {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+
+        .screenshot-container {
+          position: relative;
+          display: inline-block;
+          border-radius: 0.5rem;
+          overflow: hidden;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          max-width: 100%;
+        }
+
+        .screenshot-container:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .screenshot-thumbnail {
+          max-width: 100%;
+          height: auto;
+          display: block;
+          border-radius: 0.5rem;
+          max-height: 400px;
+          object-fit: contain;
+        }
+
+        .screenshot-overlay {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+          color: white;
+          padding: 0.5rem;
+          text-align: center;
+          font-size: 0.875rem;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+        }
+
+        .screenshot-container:hover .screenshot-overlay {
+          opacity: 1;
         }
 
         /* 滚动条样式 */

@@ -2,6 +2,59 @@ use anyhow::Result;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+/// 任务优先级
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TaskPriority {
+    /// 正常优先级：游戏操作任务（战斗、招募等）
+    Normal = 1,
+    /// 高优先级：即时操作（截图、点击、状态查询）
+    High = 10,
+}
+
+/// 带优先级的任务包装器
+#[derive(Debug)]
+pub struct PriorityTask {
+    pub priority: TaskPriority,
+    pub task: MaaTask,
+}
+
+impl PriorityTask {
+    pub fn new(task: MaaTask, priority: TaskPriority) -> Self {
+        Self { priority, task }
+    }
+    
+    /// 创建高优先级任务（截图、点击等即时操作）
+    pub fn high_priority(task: MaaTask) -> Self {
+        Self::new(task, TaskPriority::High)
+    }
+    
+    /// 创建普通优先级任务（游戏操作等）
+    pub fn normal_priority(task: MaaTask) -> Self {
+        Self::new(task, TaskPriority::Normal)
+    }
+}
+
+impl Ord for PriorityTask {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // 高优先级任务排在前面（数字越大优先级越高）
+        other.priority.cmp(&self.priority)
+    }
+}
+
+impl PartialOrd for PriorityTask {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for PriorityTask {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
+
+impl Eq for PriorityTask {}
+
 /// MAA任务队列消息定义
 /// 
 /// 所有MAA操作都通过消息队列发送到专用的MAA线程执行
@@ -150,13 +203,61 @@ pub enum MaaTask {
     },
 }
 
-/// MAA任务队列发送器类型
-pub type MaaTaskSender = tokio::sync::mpsc::UnboundedSender<MaaTask>;
+/// 双优先级MAA任务队列发送器
+#[derive(Clone)]
+pub struct MaaTaskSender {
+    pub high_priority: tokio::sync::mpsc::UnboundedSender<MaaTask>,
+    pub normal_priority: tokio::sync::mpsc::UnboundedSender<MaaTask>,
+}
 
-/// MAA任务队列接收器类型  
-pub type MaaTaskReceiver = tokio::sync::mpsc::UnboundedReceiver<MaaTask>;
+/// 双优先级MAA任务队列接收器
+pub struct MaaTaskReceiver {
+    pub high_priority: tokio::sync::mpsc::UnboundedReceiver<MaaTask>,
+    pub normal_priority: tokio::sync::mpsc::UnboundedReceiver<MaaTask>,
+}
 
-/// 创建MAA任务队列通道
+impl MaaTaskSender {
+    /// 发送高优先级任务（截图、点击等即时操作）
+    pub fn send_high_priority(&self, task: MaaTask) -> Result<(), tokio::sync::mpsc::error::SendError<MaaTask>> {
+        self.high_priority.send(task)
+    }
+    
+    /// 发送普通优先级任务（游戏操作等）
+    pub fn send_normal_priority(&self, task: MaaTask) -> Result<(), tokio::sync::mpsc::error::SendError<MaaTask>> {
+        self.normal_priority.send(task)
+    }
+    
+    /// 根据任务类型自动选择优先级发送
+    pub fn send_auto(&self, task: MaaTask) -> Result<(), tokio::sync::mpsc::error::SendError<MaaTask>> {
+        match &task {
+            // 高优先级：即时操作
+            MaaTask::TakeScreenshot { .. } | 
+            MaaTask::PerformClick { .. } | 
+            MaaTask::GetStatus { .. } => {
+                self.send_high_priority(task)
+            },
+            // 普通优先级：游戏操作
+            _ => {
+                self.send_normal_priority(task)
+            }
+        }
+    }
+}
+
+/// 创建双优先级MAA任务队列通道
 pub fn create_maa_task_channel() -> (MaaTaskSender, MaaTaskReceiver) {
-    tokio::sync::mpsc::unbounded_channel()
+    let (high_tx, high_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (normal_tx, normal_rx) = tokio::sync::mpsc::unbounded_channel();
+    
+    let sender = MaaTaskSender {
+        high_priority: high_tx,
+        normal_priority: normal_tx,
+    };
+    
+    let receiver = MaaTaskReceiver {
+        high_priority: high_rx,
+        normal_priority: normal_rx,
+    };
+    
+    (sender, receiver)
 }

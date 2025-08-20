@@ -1,46 +1,62 @@
 # MAA 智能控制中间层
 
 ## 项目本质
-**通过 Function Calling 协议让大模型直接控制 MaaAssistantArknights**
+通过 Function Calling 协议让大模型直接控制 MaaAssistantArknights
 
-## 核心架构 (3层)
+## 核心架构
 
 ```
-HTTP API (8080) → Enhanced Tools → MaaCore Singleton → maa_sys::Assistant
+HTTP API (8080) → Enhanced Tools → Task Queue → MAA Worker → maa_sys::Assistant
 ```
 
 ### 技术栈
-- **后端**: Rust + Axum + thread_local! 单例
+- **后端**: Rust + Axum + tokio 异步队列
 - **前端**: React 19 + Vite 5 (端口3000)
 - **FFI**: maa_sys 官方绑定
 - **运行模式**: stub模式(开发) / real模式(生产)
 
-## 关键文件结构
+## 项目结构
 
 ```
 src/
-├── bin/maa-server-singleton.rs     # 唯一服务器入口
-├── maa_core/                       # MAA Core 单例模块
-│   ├── mod.rs                      # thread_local! 单例管理
-│   └── basic_ops.rs                # 7个核心MAA操作
+├── bin/maa-intelligent-server.rs   # 唯一服务器入口
+├── maa_core/                       # MAA 核心模块
+│   ├── mod.rs                      # 模块导出
+│   ├── basic_ops.rs                # 基础MAA操作
+│   ├── worker.rs                   # MAA工作线程
+│   ├── task_queue.rs               # 任务队列管理
+│   ├── task_status.rs              # 任务状态管理
+│   └── screenshot.rs               # 截图功能
 ├── function_tools/                 # Function Calling 工具集
 │   ├── mod.rs                      # 模块集成和导出
 │   ├── types.rs                    # 核心类型定义
+│   ├── handler.rs                  # 工具处理器
 │   ├── core_game.rs                # 核心游戏功能 (4个工具)
 │   ├── advanced_automation.rs      # 高级自动化 (4个工具)
 │   ├── support_features.rs         # 辅助功能 (4个工具)
 │   ├── system_features.rs          # 系统功能 (4个工具)
-│   └── server.rs                   # 主服务器和函数路由
+│   └── queue_client.rs             # 队列客户端
 ├── ai_client/                      # AI 客户端集成
 │   ├── mod.rs                      # 统一AI接口
 │   ├── client.rs                   # 客户端实现
 │   ├── config.rs                   # 配置管理
-│   └── provider.rs                 # 多提供商支持
-└── maa_adapter/                    # 基础类型和错误处理
-    ├── mod.rs                      # 模块导出
-    ├── types.rs                    # 数据类型定义
-    ├── errors.rs                   # 错误处理
-    └── ffi_stub.rs                 # 开发模式stub
+│   ├── provider.rs                 # 多提供商支持
+│   ├── providers/                  # 各提供商实现
+│   └── tests.rs                    # 客户端测试
+├── maa_adapter/                    # MAA适配器
+│   ├── mod.rs                      # 模块导出
+│   ├── types.rs                    # 数据类型定义
+│   ├── errors.rs                   # 错误处理
+│   └── ffi_stub.rs                 # 开发模式stub
+├── copilot_matcher/                # 作业匹配器
+│   ├── mod.rs                      # 模块导出
+│   ├── api_client.rs               # API客户端
+│   ├── cache.rs                    # 缓存管理
+│   ├── matcher.rs                  # 匹配逻辑
+│   └── types.rs                    # 类型定义
+├── config/                         # 配置管理
+│   └── mod.rs                      # 全局配置
+└── lib.rs                          # 库入口
 ```
 
 ## Function Calling 工具 (16个)
@@ -80,15 +96,14 @@ GET  /status                        # MAA状态查询
 
 ## 运行模式
 
-### 开发模式 (默认)
+### 开发模式 (stub)
 ```bash
-cargo run --bin maa-server          # stub模式，模拟MAA功能
+cargo run --no-default-features --features stub-mode
 ```
 
-### 生产模式
+### 生产模式 (默认)
 ```bash
-cargo build --features with-maa-core
-cargo run --bin maa-server          # 真实MAA Core集成
+cargo run                           # 真实MAA Core集成
 ```
 
 ## 环境配置
@@ -126,8 +141,11 @@ MAA_DEVICE_ADDRESS=localhost:1717          # 设备地址(PlayCover)
 
 ### 快速启动
 ```bash
-cargo run                           # 启动后端(8080)
-cd maa-chat-ui && npm run dev       # 启动前端(3000)
+# 1. 启动后端服务
+cargo run --bin maa-intelligent-server
+
+# 2. 启动前端 (可选)
+cd maa-chat-ui && npm run dev
 ```
 
 ### 测试API
@@ -146,6 +164,16 @@ curl -X POST http://localhost:8080/call \
       "name": "maa_combat_enhanced",
       "arguments": {"stage": "1-7", "strategy": {"target_value": 5}}
     }
+  }'
+
+# 查看任务状态
+curl http://localhost:8080/tasks
+
+# 聊天API (AI集成)
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "帮我刷1-7"}]
   }'
 ```
 
@@ -324,18 +352,16 @@ curl -X POST http://localhost:8080/call \
 4. **重构**: 质疑每个抽象，回归简洁
 
 #### 判断"有必要吗"的实战经验
-**具体应用**:
-- 看到trait时问：有多少个实现？只有1个就删除
-- 看到wrapper时问：直接调用不行吗？
-- 看到config时问：有多少种配置？只有1种就硬编码
-- 看到抽象层时问：绕过它直接调用会怎样？
+- trait: 有多少个实现？只有1个就删除
+- wrapper: 直接调用不行吗？
+- config: 有多少种配置？只有1种就硬编码
+- 抽象层: 绕过它直接调用会怎样？
 
-#### 重构的收益
-**量化结果**:
-- 文件数量：70+ → 40+ (-43%)
-- 架构层次：7层 → 3层 (-57%)
-- 编译错误：从"无法工作"到"正常运行"
-- 开发体验：从"看不懂"到"一目了然"
+#### 重构收益
+- 文件数量：70+ → 60+
+- 架构层次：7层 → 4层
+- 编译状态：从无法编译到正常运行
+- 开发体验：从复杂难懂到结构清晰
 
 ## 技术文档体系
 
@@ -357,29 +383,27 @@ curl -X POST http://localhost:8080/call \
 | AI Client | `docs/modules/AI_CLIENT.md` | `src/ai_client/` |
 | 系统架构 | `docs/architecture/SYSTEM_ARCHITECTURE.md` | 全项目概览 |
 
-### 2025-08-18 重构成果更新
+### 2025-08-20 架构状态
 
-#### Function Tools 模块重构
-- **重命名**: `mcp_tools` → `function_tools` (更准确反映功能)
-- **拆分**: 1200+行大文件 → 6个清晰模块
-- **解决**: 所有7个TODO实现完成
-- **结果**: 16个完整MAA Function Calling工具
+#### 当前实现
+- **服务器**: maa-intelligent-server.rs (Axum + tokio)
+- **架构**: HTTP → Function Tools → Task Queue → MAA Worker
+- **工具数量**: 16个完整Function Calling工具
+- **AI集成**: 支持多提供商聊天接口
 
-#### 文件数量优化
-- **Rust源文件**: 27个 (原70+个文件的精简版)
-- **文档文件**: 4个专业技术文档
-- **删除冗余**: 20+个过时或重复文件
-
-#### 架构稳定性验证
+#### 验证状态
 ```bash
-# 编译成功
-cargo check ✅
-# 服务器启动正常  
-cargo run ✅
-# 健康检查通过
-curl localhost:8080/health ✅
-# 16个工具加载完成
-curl localhost:8080/tools | jq '.functions | length' # 返回16 ✅
+# 编译检查
+cargo check
+
+# 启动服务器
+cargo run --bin maa-intelligent-server
+
+# 健康检查
+curl localhost:8080/health
+
+# 工具列表
+curl localhost:8080/tools
 ```
 
 ---
@@ -388,8 +412,8 @@ curl localhost:8080/tools | jq '.functions | length' # 返回16 ✅
 
 ### 快速开始
 ```bash
-# 1. 启动后端服务 (Stub模式)
-cargo run --bin maa-server
+# 1. 启动后端服务
+cargo run --bin maa-intelligent-server
 
 # 2. 测试健康检查
 curl http://localhost:8080/health
@@ -409,18 +433,18 @@ curl -X POST http://localhost:8080/call \
 ```
 
 ### 添加新功能
-1. **新Function Tool**: 参考 `docs/modules/FUNCTION_TOOLS.md` 中的扩展指南
-2. **新MAA操作**: 在 `src/maa_core/basic_ops.rs` 中添加异步函数
-3. **新AI提供商**: 参考 `docs/modules/AI_CLIENT.md` 中的提供商扩展
+1. **新Function Tool**: 在对应的功能模块(core_game.rs等)中添加
+2. **新MAA操作**: 在 `src/maa_core/basic_ops.rs` 中添加
+3. **新AI提供商**: 在 `src/ai_client/providers/` 目录下添加
 
 ### 文档维护原则
-1. **代码优先**: 文档必须对应真实存在的代码
-2. **位置精确**: 包含具体的文件路径和行号
-3. **持续更新**: 代码变更时同步更新文档
-4. **实用导向**: 每个文档都要能指导实际开发工作
+1. **代码优先**: 文档对应真实代码
+2. **位置精确**: 包含具体文件路径
+3. **持续更新**: 代码变更时同步更新
+4. **实用导向**: 文档指导实际开发
 
 ---
 
-**文档原则**: 简洁、准确、实用。每一行都有存在价值。  
-**架构原则**: 质疑一切，保留核心，删除冗余。  
-**维护原则**: 文档与代码同步，技术决策可追溯。
+**文档原则**: 简洁、准确、实用  
+**架构原则**: 质疑抽象，保留核心  
+**维护原则**: 文档与代码同步

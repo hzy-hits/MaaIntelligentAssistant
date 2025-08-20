@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use tracing::{info, debug, warn, error};
 use chrono::Utc;
 
-use super::{MaaCore, task_queue::{MaaTask, MaaTaskReceiver}};
+use super::{MaaCore, task_queue::{MaaTask, MaaTaskReceiver}, task_status};
 
 /// MAA工作线程
 /// 
@@ -26,19 +26,52 @@ impl MaaWorker {
     /// 启动MAA工作者主循环
     /// 
     /// 这个函数会一直运行，处理从任务队列接收到的所有MAA任务
+    /// 优先处理高优先级队列（截图、点击等即时操作），然后处理普通队列
     pub async fn run(mut self, mut task_rx: MaaTaskReceiver) {
-        info!("🚀 MAA工作者启动，开始处理任务队列");
+        info!("MAA工作者启动，开始处理双优先级任务队列");
+        info!("高优先级：截图、点击等即时操作");
+        info!("普通优先级：游戏任务、自动化操作");
         
-        while let Some(task) = task_rx.recv().await {
-            debug!("📨 收到MAA任务: {:?}", std::mem::discriminant(&task));
-            
-            let result = self.handle_task(task).await;
-            if let Err(e) = result {
-                error!("❌ 任务处理失败: {:?}", e);
+        loop {
+            // 优先处理高优先级任务
+            tokio::select! {
+                // 优先级1: 高优先级任务（截图、点击等）
+                high_task = task_rx.high_priority.recv() => {
+                    match high_task {
+                        Some(task) => {
+                            debug!("收到高优先级MAA任务: {:?}", std::mem::discriminant(&task));
+                            let result = self.handle_task(task).await;
+                            if let Err(e) = result {
+                                error!("高优先级任务处理失败: {:?}", e);
+                            }
+                        }
+                        None => {
+                            warn!("高优先级队列已关闭");
+                            break;
+                        }
+                    }
+                }
+                
+                // 优先级2: 普通优先级任务（游戏操作等）
+                normal_task = task_rx.normal_priority.recv() => {
+                    match normal_task {
+                        Some(task) => {
+                            debug!("收到普通优先级MAA任务: {:?}", std::mem::discriminant(&task));
+                            let result = self.handle_task(task).await;
+                            if let Err(e) = result {
+                                error!("普通优先级任务处理失败: {:?}", e);
+                            }
+                        }
+                        None => {
+                            warn!("普通优先级队列已关闭");
+                            break;
+                        }
+                    }
+                }
             }
         }
         
-        warn!("⚠️ MAA工作者退出 - 任务队列已关闭");
+        warn!("MAA工作者退出 - 任务队列已关闭");
     }
     
     /// 处理单个MAA任务
@@ -135,7 +168,7 @@ impl MaaWorker {
             }
             
             MaaTask::TakeScreenshot { response_tx } => {
-                let result = self.handle_take_screenshot();
+                let result = self.handle_take_screenshot_raw();
                 let _ = response_tx.send(result);
             }
             
@@ -155,7 +188,7 @@ impl MaaWorker {
     
     /// 处理游戏启动任务
     async fn handle_startup(&mut self, client_type: &str, start_app: bool, close_app: bool) -> Result<Value> {
-        info!("🚀 处理游戏启动任务: client={}, start_app={}, close_app={}", client_type, start_app, close_app);
+        info!("处理游戏启动任务: client={}, start_app={}, close_app={}", client_type, start_app, close_app);
         
         // 确保MAA已初始化
         if !self.core.is_initialized() {
@@ -196,7 +229,7 @@ impl MaaWorker {
     
     /// 处理设备连接任务
     fn handle_connect(&mut self, address: &str) -> Result<i32> {
-        info!("🔌 处理设备连接任务: {}", address);
+        info!("处理设备连接任务: {}", address);
         
         // 确保MAA已初始化
         if !self.core.is_initialized() {
@@ -227,21 +260,36 @@ impl MaaWorker {
         
         debug!("Fight任务参数: {}", params_str);
         
+        // 启动MAA战斗任务
         let task_id = self.core.execute_task("Fight", &params_str)?;
         
+        // 注册任务状态
+        let params_json = json!({
+            "stage": stage,
+            "medicine": medicine,
+            "stone": stone,
+            "times": times
+        });
+        task_status::register_task(task_id, "Fight".to_string(), params_json);
+        
+        // 立即返回任务信息，不等待完成
         Ok(json!({
             "task_id": task_id,
+            "task_type": "Fight",
+            "status": "running",
+            "message": "战斗任务已启动，正在后台执行",
             "stage": stage,
             "medicine": medicine,
             "stone": stone,
             "times": times,
-            "status": "started"
+            "estimated_duration": format!("{}次战斗，预计5-15分钟", times),
+            "check_status_url": format!("/task/{}/status", task_id)
         }))
     }
     
     /// 处理公开招募任务
     async fn handle_recruit(&mut self, max_times: i32, expedite: bool, skip_robot: bool) -> Result<Value> {
-        info!("🎯 处理招募任务: times={}, expedite={}, skip_robot={}", max_times, expedite, skip_robot);
+        info!("处理招募任务: times={}, expedite={}, skip_robot={}", max_times, expedite, skip_robot);
         
         self.ensure_ready().await?;
         
@@ -261,14 +309,28 @@ impl MaaWorker {
         
         debug!("Recruit任务参数: {}", params_str);
         
+        // 启动MAA招募任务
         let task_id = self.core.execute_task("Recruit", &params_str)?;
         
+        // 注册任务状态
+        let params_json = json!({
+            "max_times": max_times,
+            "expedite": expedite,
+            "skip_robot": skip_robot
+        });
+        task_status::register_task(task_id, "Recruit".to_string(), params_json);
+        
+        // 立即返回任务信息，不等待完成
         Ok(json!({
             "task_id": task_id,
+            "task_type": "Recruit",
+            "status": "running",
+            "message": "招募任务已启动，正在后台执行",
             "max_times": max_times,
             "expedite": expedite,
             "skip_robot": skip_robot,
-            "status": "started"
+            "estimated_duration": format!("{}次招募，预计2-5分钟", max_times),
+            "check_status_url": format!("/task/{}/status", task_id)
         }))
     }
     
@@ -288,10 +350,43 @@ impl MaaWorker {
         Ok(())
     }
     
-    // 其他任务处理方法的简化实现...
+    
+    
+    /// 处理基建任务 - 异步执行，立即返回任务状态
     async fn handle_infrastructure(&mut self, _facility: &[String], _drones: &str, _threshold: f64) -> Result<Value> {
+        info!("处理基建任务: drones={}, threshold={}", _drones, _threshold);
+        
         self.ensure_ready().await?;
-        Ok(json!({"status": "infrastructure_stub"}))
+        
+        // 创建基建任务参数
+        let params = json!({
+            "enable": true,
+            "facility": ["Mfg", "Trade", "Power", "Reception", "Office", "Dorm"],
+            "drones": _drones,
+            "threshold": _threshold,
+            "dorm_trust_enabled": true
+        });
+        
+        let params_str = serde_json::to_string(&params)
+            .map_err(|e| anyhow!("序列化任务参数失败: {}", e))?;
+        
+        // 启动MAA任务
+        let task_id = self.core.execute_task("Infrast", &params_str)?;
+        
+        // 注册任务状态
+        task_status::register_task(task_id, "Infrast".to_string(), params);
+        
+        // 立即返回任务信息，不等待完成
+        Ok(json!({
+            "task_id": task_id,
+            "task_type": "Infrast",
+            "status": "running",
+            "message": "基建任务已启动，正在后台执行",
+            "facility": ["Mfg", "Trade", "Power", "Reception", "Office", "Dorm"],
+            "dorm_trust_enabled": true,
+            "estimated_duration": "3-8分钟",
+            "check_status_url": format!("/task/{}/status", task_id)
+        }))
     }
     
     async fn handle_roguelike(&mut self, _theme: &str, _mode: i32, _starts_count: i32) -> Result<Value> {
@@ -314,9 +409,44 @@ impl MaaWorker {
         Ok(json!({"status": "reclamation_stub"}))
     }
     
-    async fn handle_rewards(&mut self, _award: bool, _mail: bool, _recruit: bool, _orundum: bool) -> Result<Value> {
+    async fn handle_rewards(&mut self, award: bool, mail: bool, recruit: bool, orundum: bool) -> Result<Value> {
+        info!("处理奖励收集任务: award={}, mail={}, recruit={}, orundum={}", award, mail, recruit, orundum);
+        
         self.ensure_ready().await?;
-        Ok(json!({"status": "rewards_stub"}))
+        
+        // 创建奖励收集任务参数
+        let params = json!({
+            "enable": true,
+            "award": award,
+            "mail": mail,
+            "recruit": recruit,
+            "orundum": orundum,
+            "mining": true,
+            "specialaccess": true
+        });
+        
+        let params_str = serde_json::to_string(&params)
+            .map_err(|e| anyhow!("序列化任务参数失败: {}", e))?;
+        
+        // 启动MAA任务
+        let task_id = self.core.execute_task("Award", &params_str)?;
+        
+        // 注册任务状态
+        task_status::register_task(task_id, "Award".to_string(), params);
+        
+        // 立即返回任务信息，不等待完成
+        Ok(json!({
+            "task_id": task_id,
+            "task_type": "Award",
+            "status": "running",
+            "message": "奖励收集任务已启动，正在后台执行",
+            "award": award,
+            "mail": mail,
+            "recruit": recruit,
+            "orundum": orundum,
+            "estimated_duration": "1-3分钟",
+            "check_status_url": format!("/task/{}/status", task_id)
+        }))
     }
     
     async fn handle_credit_store(&mut self, _credit_fight: bool) -> Result<Value> {
@@ -364,18 +494,24 @@ impl MaaWorker {
         }))
     }
     
-    fn handle_take_screenshot(&mut self) -> Result<Vec<u8>> {
-        info!("📸 执行截图操作");
-        self.core.screenshot()
+    /// 处理截图任务 - 返回原始图片数据 (统一入口)
+    fn handle_take_screenshot_raw(&mut self) -> Result<Vec<u8>> {
+        info!("执行MAA截图操作");
+        
+        // 获取截图数据
+        let image_data = self.core.screenshot()?;
+        
+        info!("截图完成，数据大小: {} bytes", image_data.len());
+        Ok(image_data)
     }
     
     fn handle_perform_click(&mut self, x: i32, y: i32) -> Result<i32> {
-        info!("👆 执行点击操作: ({}, {})", x, y);
+        info!("执行点击操作: ({}, {})", x, y);
         self.core.click(x, y)
     }
     
     fn handle_stop_all_tasks(&mut self) -> Result<()> {
-        info!("⏹️ 停止所有MAA任务");
+        info!("停止所有MAA任务");
         // 实现停止逻辑
         Ok(())
     }

@@ -9,8 +9,8 @@
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
-use crate::maa_core::{execute_awards, execute_credit_store, execute_depot_management, execute_operator_box};
 use super::types::{FunctionDefinition, FunctionResponse, MaaError};
+use super::queue_client::MaaQueueClient;
 use std::time::Instant;
 
 /// 创建奖励增强工具定义
@@ -58,9 +58,9 @@ pub fn create_rewards_enhanced_definition() -> FunctionDefinition {
 }
 
 /// 处理奖励增强任务
-pub async fn handle_rewards_enhanced(args: Value) -> FunctionResponse {
+pub async fn handle_rewards_enhanced(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
-    info!("🎁 处理奖励收集任务");
+    info!("处理奖励收集任务");
     
     let award = args.get("award").and_then(|v| v.as_bool()).unwrap_or(true);
     let mail = args.get("mail").and_then(|v| v.as_bool()).unwrap_or(true);
@@ -72,9 +72,9 @@ pub async fn handle_rewards_enhanced(args: Value) -> FunctionResponse {
     debug!("奖励收集参数: award={}, mail={}, recruit={}, orundum={}, mining={}, specialaccess={}", 
            award, mail, recruit, orundum, mining, specialaccess);
 
-    match execute_awards(award, mail, recruit, orundum).await {
+    match queue_client.rewards(award, mail, recruit, orundum).await {
         Ok(result) => {
-            info!("✅ 奖励收集任务完成");
+            info!("奖励收集任务完成");
             let response_data = json!({
                 "status": "success",
                 "message": "奖励收集任务已完成",
@@ -93,7 +93,7 @@ pub async fn handle_rewards_enhanced(args: Value) -> FunctionResponse {
         },
         Err(e) => {
             let error = MaaError::maa_core_error(&format!("奖励收集失败: {}", e), Some("检查MAA连接状态和游戏界面"));
-            debug!("❌ 奖励收集失败: {}", e);
+            debug!("奖励收集失败: {}", e);
             FunctionResponse::error("maa_rewards_enhanced", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -142,7 +142,7 @@ pub fn create_credit_store_enhanced_definition() -> FunctionDefinition {
 }
 
 /// 处理信用商店增强任务
-pub async fn handle_credit_store_enhanced(args: Value) -> FunctionResponse {
+pub async fn handle_credit_store_enhanced(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("🏪 处理信用商店任务");
     
@@ -171,9 +171,9 @@ pub async fn handle_credit_store_enhanced(args: Value) -> FunctionResponse {
         .map(|arr| arr.iter().filter_map(|item| item.as_str().map(|s| s.to_string())).collect())
         .unwrap_or_else(|| vec!["家具".to_string(), "碳".to_string()]);
 
-    match execute_credit_store(true).await {
+    match queue_client.credit_store(enable).await {
         Ok(result) => {
-            info!("✅ 信用商店任务完成");
+            info!("信用商店任务完成");
             let response_data = json!({
                 "status": "success",
                 "message": "信用商店购买任务完成",
@@ -186,7 +186,7 @@ pub async fn handle_credit_store_enhanced(args: Value) -> FunctionResponse {
         },
         Err(e) => {
             let error = MaaError::maa_core_error(&format!("信用商店购买失败: {}", e), Some("检查信用点数量和商店状态"));
-            debug!("❌ 信用商店购买失败: {}", e);
+            debug!("信用商店购买失败: {}", e);
             FunctionResponse::error("maa_credit_store_enhanced", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -238,7 +238,7 @@ pub fn create_depot_management_definition() -> FunctionDefinition {
 }
 
 /// 处理仓库管理任务
-pub async fn handle_depot_management(args: Value) -> FunctionResponse {
+pub async fn handle_depot_management(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("📦 处理仓库管理任务");
     
@@ -259,9 +259,9 @@ pub async fn handle_depot_management(args: Value) -> FunctionResponse {
     debug!("仓库管理参数: enable={}, depot_enable={}, scan_only={}", 
            enable, depot_enable, scan_only);
 
-    match execute_depot_management(depot_enable).await {
+    match queue_client.depot_management(depot_enable).await {
         Ok(result) => {
-            info!("✅ 仓库管理任务完成");
+            info!("仓库管理任务完成");
             let response_data = json!({
                 "status": "success",
                 "message": "仓库管理任务完成",
@@ -274,7 +274,7 @@ pub async fn handle_depot_management(args: Value) -> FunctionResponse {
         },
         Err(e) => {
             let error = MaaError::maa_core_error(&format!("仓库管理失败: {}", e), Some("检查仓库页面是否已打开"));
-            debug!("❌ 仓库管理失败: {}", e);
+            debug!("仓库管理失败: {}", e);
             FunctionResponse::error("maa_depot_management", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }
@@ -327,7 +327,7 @@ pub fn create_operator_box_definition() -> FunctionDefinition {
 }
 
 /// 处理干员整理任务
-pub async fn handle_operator_box(args: Value) -> FunctionResponse {
+pub async fn handle_operator_box(args: Value, queue_client: &MaaQueueClient) -> FunctionResponse {
     let start_time = Instant::now();
     info!("👥 处理干员整理任务");
     
@@ -346,9 +346,9 @@ pub async fn handle_operator_box(args: Value) -> FunctionResponse {
 
     debug!("干员整理参数: enable={}, sort_by={}", enable, sort_by);
 
-    match execute_operator_box(enable).await {
+    match queue_client.operator_box(enable).await {
         Ok(result) => {
-            info!("✅ 干员整理任务完成");
+            info!("干员整理任务完成");
             let response_data = json!({
                 "status": "success",
                 "message": "干员整理任务完成",
@@ -361,7 +361,7 @@ pub async fn handle_operator_box(args: Value) -> FunctionResponse {
         },
         Err(e) => {
             let error = MaaError::maa_core_error(&format!("干员整理失败: {}", e), Some("检查干员列表页面是否已打开"));
-            debug!("❌ 干员整理失败: {}", e);
+            debug!("干员整理失败: {}", e);
             FunctionResponse::error("maa_operator_box", error)
                 .with_execution_time(start_time.elapsed().as_millis() as u64)
         }

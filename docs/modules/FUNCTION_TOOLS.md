@@ -2,26 +2,26 @@
 
 ## 模块概述
 
-Function Tools 是 MAA 智能控制系统的核心功能模块，提供 16 个完整的 MAA Function Calling 工具。该模块在 2025-08-18 重构后实现了：
+Function Tools 是 MAA 智能控制系统的核心功能模块，提供 16 个完整的 MAA Function Calling 工具。模块基于异步任务队列架构实现：
 
-- **增强的工具描述**: 参考 maa-knowledge 添加了详细的使用场景和参数说明
-- **智能自然语言解析**: 支持更多中文游戏术语和别名
-- **统一响应格式**: 完善的错误处理和资源使用统计
-- **上下文感知**: 工具间状态共享和任务链推荐
+- **完整的工具描述**: 详细的使用场景和参数说明
+- **异步任务队列**: HTTP → Function Tools → Task Queue → MAA Worker
+- **统一响应格式**: 完善的错误处理和状态管理
+- **多种功能分类**: 按使用频率和复杂度分组
 
 ## 架构设计
 
 ### 模块结构
 ```
 src/function_tools/
-├── mod.rs              # 模块导出和集成
-├── types.rs            # 增强的类型定义（错误处理、响应格式、上下文）
-├── core_game.rs        # 核心游戏功能 (4个工具) - 已增强
-├── advanced_automation.rs  # 高级自动化 (4个工具)
-├── support_features.rs     # 辅助功能 (4个工具)
-├── system_features.rs      # 系统功能 (4个工具)
-├── context.rs          # 上下文管理和任务链推荐
-└── server.rs              # 主服务器实现
+├── mod.rs                   # 模块导出和集成
+├── types.rs                 # 核心类型定义
+├── handler.rs               # Function Calling处理器
+├── queue_client.rs          # 队列客户端
+├── core_game.rs             # 核心游戏功能 (4个工具)
+├── advanced_automation.rs   # 高级自动化 (4个工具)
+├── support_features.rs      # 辅助功能 (4个工具)
+└── system_features.rs       # 系统功能 (4个工具)
 ```
 
 ### 设计原则
@@ -34,49 +34,64 @@ src/function_tools/
 
 2. **单一职责原则**: 每个模块只处理特定类型的 MAA 任务
 
-3. **依赖倒置原则**: 所有工具都依赖于 `maa_core` 模块的抽象接口
+3. **队列架构原则**: 所有工具通过异步队列与 MAA Core 交互
 
 ## 核心类型定义 (types.rs)
 
-### 增强的类型系统
+### 核心类型系统
 ```rust
 // 位置: src/function_tools/types.rs
+
+// Function calling工具定义
+pub struct FunctionDefinition {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+// Function calling请求
+pub struct FunctionCall {
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
 
 // 增强的响应类型
 pub struct FunctionResponse {
     pub success: bool,
-    pub result: Option<Value>,
-    pub error: Option<MaaError>,           // 统一错误类型
+    pub result: Option<serde_json::Value>,
+    pub error: Option<MaaError>,
     pub timestamp: DateTime<Utc>,
-    pub execution_time_ms: Option<u64>,    // 执行时间
-    pub metadata: ResponseMetadata,        // 元数据
+    pub execution_time_ms: Option<u64>,
+    pub metadata: ResponseMetadata,
 }
 
-// 细化的错误类型
+// MAA错误类型
 pub struct MaaError {
-    pub error_type: ErrorType,      // 错误分类
-    pub message: String,            // 错误消息
-    pub details: Option<String>,    // 详细信息
-    pub suggestion: Option<String>, // 解决建议
-    pub error_code: Option<String>, // 错误码
+    pub error_type: ErrorType,
+    pub message: String,
+    pub details: Option<String>,
+    pub suggestion: Option<String>,
+    pub error_code: Option<String>,
 }
 
-// 上下文管理
+// 任务执行上下文
 pub struct TaskContext {
     pub user_id: Option<String>,
     pub session_id: Option<String>,
-    pub game_state: GameState,      // 游戏状态
-    pub last_operations: Vec<String>, // 历史操作
-    pub recommendations: Vec<String>, // 智能推荐
+    pub game_state: GameState,
+    pub last_operations: Vec<String>,
+    pub recommendations: Vec<String>,
 }
 
-// 资源使用统计
-pub struct ResourceUsage {
-    pub sanity_used: Option<i32>,
-    pub medicine_used: Option<i32>,
-    pub stone_used: Option<i32>,
-    pub recruit_tickets_used: Option<i32>,
-    pub items_gained: HashMap<String, i32>,
+// 游戏状态
+pub struct GameState {
+    pub current_sanity: Option<i32>,
+    pub max_sanity: Option<i32>,
+    pub medicine_count: Option<i32>,
+    pub stone_count: Option<i32>,
+    pub recruit_tickets: Option<i32>,
+    pub current_stage: Option<String>,
+    pub last_login: Option<DateTime<Utc>>,
 }
 ```
 
@@ -284,31 +299,30 @@ fn check_reminders(user_id: &str) -> Vec<String> {
 }
 ```
 
-## 主服务器实现 (server.rs)
+## Function Tools 处理器 (handler.rs)
 
 ### 核心架构
 
-#### 服务器结构
+#### 处理器结构
 ```rust
 #[derive(Clone)]
-pub struct EnhancedMaaFunctionServer {
-    // 简化：直接使用MaaCore单例，不需要字段
+pub struct EnhancedMaaFunctionHandler {
+    queue_client: MaaQueueClient,
 }
 ```
 
 #### 工具集成策略
 ```rust
-impl EnhancedMaaFunctionServer {
+impl EnhancedMaaFunctionHandler {
     pub fn get_function_definitions(&self) -> Vec<FunctionDefinition> {
         let mut definitions = Vec::new();
         
         // 按类别加载工具定义
-        definitions.push(create_startup_definition());        // 核心游戏
-        definitions.push(create_roguelike_enhanced_definition()); // 高级自动化
-        definitions.push(create_rewards_enhanced_definition());   // 辅助功能
-        definitions.push(create_closedown_definition());          // 系统功能
+        definitions.extend(core_game::get_function_definitions());
+        definitions.extend(advanced_automation::get_function_definitions());
+        definitions.extend(support_features::get_function_definitions());
+        definitions.extend(system_features::get_function_definitions());
         
-        info!("📋 加载了 {} 个Function Calling工具", definitions.len());
         definitions
     }
 }
@@ -317,22 +331,26 @@ impl EnhancedMaaFunctionServer {
 #### 函数路由机制
 ```rust
 pub async fn execute_function(&self, call: FunctionCall) -> FunctionResponse {
+    let start_time = std::time::Instant::now();
+    
     let result = match call.name.as_str() {
         // 核心游戏功能
-        "maa_startup" => handle_startup(call.arguments).await,
-        "maa_combat_enhanced" => handle_combat_enhanced(call.arguments).await,
+        "maa_startup" => core_game::handle_startup(&self.queue_client, call.arguments).await,
+        "maa_combat_enhanced" => core_game::handle_combat_enhanced(&self.queue_client, call.arguments).await,
         
         // 高级自动化
-        "maa_roguelike_enhanced" => handle_roguelike_enhanced(call.arguments).await,
+        "maa_roguelike_enhanced" => advanced_automation::handle_roguelike_enhanced(&self.queue_client, call.arguments).await,
         
         // 其他功能...
         _ => Err(format!("未知的函数调用: {}", call.name))
     };
     
+    let execution_time = start_time.elapsed().as_millis() as u64;
+    
     // 统一响应格式化
     match result {
-        Ok(value) => FunctionResponse::success(value),
-        Err(error) => FunctionResponse::error(error)
+        Ok(value) => FunctionResponse::success(&call.name, value).with_execution_time(execution_time),
+        Err(error) => FunctionResponse::simple_error(&call.name, error).with_execution_time(execution_time)
     }
 }
 ```
@@ -340,18 +358,18 @@ pub async fn execute_function(&self, call: FunctionCall) -> FunctionResponse {
 ## 上下游交互
 
 ### 上游依赖
-1. **maa_core 模块**: 提供底层 MAA 操作接口
-   - `execute_fight()` - 战斗任务
-   - `execute_startup()` - 启动任务
-   - `get_maa_status()` - 状态查询
+1. **maa_core 模块**: 提供任务队列接口
+   - `MaaTask` 枚举 - 任务类型定义
+   - `MaaTaskSender` - 任务发送器
+   - `MaaWorker` - 异步工作线程
 
 2. **类型系统**: 
    - `serde_json::Value` - 参数和返回值
-   - `anyhow::Result` - 错误处理
+   - `tokio::sync::mpsc` - 异步消息传递
    - `chrono::DateTime<Utc>` - 时间戳
 
 ### 下游消费者
-1. **HTTP API 层** (`function_calling_server.rs`)
+1. **HTTP API 层** (`maa-intelligent-server.rs`)
    - 接收 HTTP 请求
    - 调用 `execute_function()`
    - 返回 JSON 响应
@@ -369,21 +387,23 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_server_creation() {
-        let server = create_enhanced_function_server();
-        let definitions = server.get_function_definitions();
+    async fn test_handler_creation() {
+        let (task_sender, _) = create_maa_task_channel();
+        let handler = create_enhanced_function_handler(task_sender);
+        let definitions = handler.get_function_definitions();
         assert_eq!(definitions.len(), 16);
     }
 
     #[tokio::test]
     async fn test_startup_function_call() {
-        let server = create_enhanced_function_server();
+        let (task_sender, _) = create_maa_task_channel();
+        let handler = create_enhanced_function_handler(task_sender);
         let call = FunctionCall {
             name: "maa_startup".to_string(),
             arguments: json!({"client_type": "Official"}),
         };
 
-        let response = server.execute_function(call).await;
+        let response = handler.execute_function(call).await;
         assert!(response.success);
     }
 }
@@ -396,24 +416,25 @@ mod tests {
 
 ## 性能考虑
 
-### 异步执行
-- 所有 MAA 操作都是异步的，避免阻塞
-- 使用 `tokio::time::sleep()` 模拟真实操作延迟
+### 异步队列架构
+- HTTP请求立即返回，MAA任务异步执行
+- 使用 `tokio::sync::mpsc` 实现无锁消息传递
+- 单线程MAA工作者确保状态一致性
 
 ### 内存管理
-- 使用 `Clone` trait 实现轻量级服务器复制
+- 使用 `Clone` trait 实现轻量级处理器复制
 - JSON 参数按需解析，避免不必要的内存分配
 
 ### 并发安全
-- `thread_local!` 确保 MAA Core 实例线程隔离
-- 无状态设计，支持并发请求
+- 异步队列隔离HTTP处理和MAA执行
+- 无状态设计，支持高并发请求
 
 ## 扩展机制
 
 ### 添加新工具的步骤
-1. 在相应类别模块中定义工具函数
-2. 在 `server.rs` 中添加路由规则
-3. 在 `mod.rs` 中导出新函数
+1. 在相应类别模块中定义工具函数和定义
+2. 在 `handler.rs` 中添加路由规则
+3. 在相应模块的 `get_function_definitions()` 中注册
 4. 添加对应的单元测试
 
 ### 支持的扩展类型
@@ -449,44 +470,39 @@ Err("游戏启动失败: MAA Core 连接失败".to_string())
 | 功能 | 文件位置 | 关键函数 |
 |-----|----------|----------|
 | 类型定义 | `src/function_tools/types.rs` | `FunctionDefinition`, `FunctionResponse` |
-| 启动功能 | `src/function_tools/core_game.rs:15` | `create_startup_definition()` |
-| 战斗功能 | `src/function_tools/core_game.rs:78` | `create_combat_enhanced_definition()` |
-| 肉鸽功能 | `src/function_tools/advanced_automation.rs:15` | `create_roguelike_enhanced_definition()` |
-| 主服务器 | `src/function_tools/server.rs:27` | `EnhancedMaaFunctionServer::new()` |
-| 函数路由 | `src/function_tools/server.rs:72` | `execute_function()` |
+| 处理器 | `src/function_tools/handler.rs` | `EnhancedMaaFunctionHandler` |
+| 队列客户端 | `src/function_tools/queue_client.rs` | `MaaQueueClient` |
+| 启动功能 | `src/function_tools/core_game.rs` | `handle_startup()` |
+| 战斗功能 | `src/function_tools/core_game.rs` | `handle_combat_enhanced()` |
+| 肉鸽功能 | `src/function_tools/advanced_automation.rs` | `handle_roguelike_enhanced()` |
 
-## 优化成果总结
+## 架构总结
 
-### 量化指标
-- **工具描述增强**: 16个工具全部增加详细的使用场景和参数说明
-- **自然语言支持**: 新增30+中文游戏术语支持
-- **错误处理**: 6种错误类型分类 + 智能建议系统
-- **上下文管理**: 增加任务链推荐和状态跟踪
+### 技术特点
+- **异步队列架构**: HTTP请求与MAA执行完全分离
+- **16个完整工具**: 覆盖所有MAA功能类别
+- **统一错误处理**: 7种错误类型分类 + 智能建议系统
+- **类型安全**: 完整的Rust类型系统和serde支持
 
-### 用户体验提升
-- **更容易理解**: 中文命令 “刷龙门币本用完理智” → CE-5 无限战斗
-- **更好的错误反馈**: 明确的错误类型和解决建议
-- **智能推荐**: 根据当前操作和游戏状态推荐后续任务
-- **资源跟踪**: 显示理智、材料使用情况
+### 性能优势
+- **零锁设计**: 基于消息传递而非共享状态
+- **高并发**: HTTP层支持大量并发请求
+- **状态一致**: 单线程MAA工作者确保操作原子性
+- **响应迅速**: 异步处理避免请求阻塞
 
 ### 维护指南
 
 #### 日常维护
-- 定期更新游戏术语映射表
-- 监控错误率和用户反馈
-- 优化任务链推荐逻辑
+- 监控任务队列状态
+- 检查错误率和执行时间
+- 更新游戏术语映射
 
 #### 扩展指南
 - 新增工具: 在对应类别模块中添加工具定义和处理函数
-- 扩展语言支持: 在 `maa_core/basic_ops.rs` 中添加新的解析规则
-- 新增上下文: 在 `context.rs` 中扩展推荐逻辑
-
-### 性能监控
-- 监控函数执行时间
-- 跟踪内存使用情况
-- 记录错误率和成功率
+- 新增任务类型: 在 `maa_core/task_queue.rs` 中添加 MaaTask 变体
+- 扩展队列客户端: 在 `queue_client.rs` 中添加新的客户端方法
 
 ### 版本管理
 - 保持与 MAA Core 版本同步
-- 向后兼容性考虑
-- API 变更通知机制
+- API变更向后兼容
+- 模块独立版本控制

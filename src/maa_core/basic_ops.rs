@@ -42,7 +42,7 @@ pub async fn init_maa_core() -> Result<()> {
         // 创建 MAA Assistant（不需要回调函数）
         let assistant = Assistant::new(None, None);
         
-        info!("✅ MAA Core 初始化成功");
+        info!("MAA Core 初始化成功");
         *assistant_borrow = Some(assistant);
         
         Ok(())
@@ -84,7 +84,7 @@ pub async fn connect_device(address: &str) -> Result<i32> {
     execute_maa_operation(|assistant| {
         // 尝试连接设备
         let connection_id = assistant.async_connect("adb", address, "{}", true)?;
-        info!("✅ 设备连接成功，连接ID: {}", connection_id);
+        info!("设备连接成功，连接ID: {}", connection_id);
         Ok(connection_id)
     }).await.or_else(|_| {
         warn!("MAA Core 不可用，使用 stub 模式");
@@ -116,7 +116,7 @@ pub async fn execute_fight(stage: &str, medicine: i32, stone: i32, times: i32) -
         
         // 创建刷图任务
         let task_id = assistant.append_task("Fight", fight_params.to_string().as_str())?;
-        info!("✅ 刷图任务创建成功，任务ID: {}", task_id);
+        info!("刷图任务创建成功，任务ID: {}", task_id);
         
         // 启动任务
         assistant.start()?;
@@ -174,7 +174,7 @@ pub async fn get_maa_status() -> Result<Value> {
 /// # 返回
 /// 图像数据（字节数组）
 pub fn take_screenshot() -> Result<Vec<u8>> {
-    info!("⚠️ take_screenshot已废弃，请使用任务队列");
+    info!("take_screenshot已废弃，请使用任务队列");
     
     // 返回空的字节数组
     Ok(vec![])
@@ -189,7 +189,7 @@ pub fn take_screenshot() -> Result<Vec<u8>> {
 /// # 返回
 /// 点击操作ID
 pub fn perform_click(x: i32, y: i32) -> Result<i32> {
-    info!("⚠️ perform_click已废弃，请使用任务队列");
+    info!("perform_click已废弃，请使用任务队列");
     info!("尝试点击: ({}, {})", x, y);
     
     Ok(1)
@@ -200,14 +200,14 @@ pub fn perform_click(x: i32, y: i32) -> Result<i32> {
 /// # 返回
 /// 操作结果
 pub fn stop_all_tasks() -> Result<()> {
-    info!("⚠️ stop_all_tasks已废弃，请使用任务队列");
+    info!("stop_all_tasks已废弃，请使用任务队列");
     
     Ok(())
 }
 
 /// 执行启动任务 (已废弃 - 使用任务队列)
 pub async fn execute_startup(client_type: &str, start_app: bool, close_app: bool) -> Result<Value> {
-    info!("⚠️ execute_startup已废弃，请使用任务队列");
+    info!("execute_startup已废弃，请使用任务队列");
     info!("尝试启动: client={}, start_app={}, close_app={}", client_type, start_app, close_app);
     
     Ok(json!({
@@ -221,7 +221,7 @@ pub async fn execute_startup(client_type: &str, start_app: bool, close_app: bool
 
 /// 执行招募任务 (已废弃 - 使用任务队列)
 pub async fn execute_recruit(max_times: i32, expedite: bool, skip_robot: bool) -> Result<Value> {
-    info!("⚠️ execute_recruit已废弃，请使用任务队列");
+    info!("execute_recruit已废弃，请使用任务队列");
     info!("尝试招募: times={}, expedite={}, skip_robot={}", max_times, expedite, skip_robot);
     
     Ok(json!({
@@ -235,7 +235,7 @@ pub async fn execute_recruit(max_times: i32, expedite: bool, skip_robot: bool) -
 
 /// 执行基建任务 (已废弃 - 使用任务队列)
 pub async fn execute_infrastructure(facility: &[String], drones: &str, threshold: f64) -> Result<Value> {
-    info!("⚠️ execute_infrastructure已废弃，请使用任务队列");
+    info!("execute_infrastructure已废弃，请使用任务队列");
     info!("尝试基建: facility={:?}, drones={}, threshold={}", facility, drones, threshold);
     
     Ok(json!({
@@ -249,7 +249,7 @@ pub async fn execute_infrastructure(facility: &[String], drones: &str, threshold
 
 /// 执行关闭任务 (已废弃 - 使用任务队列)
 pub async fn execute_closedown() -> Result<Value> {
-    info!("⚠️ execute_closedown已废弃，请使用任务队列");
+    info!("execute_closedown已废弃，请使用任务队列");
     
     Ok(json!({
         "task_id": 1,
@@ -259,7 +259,7 @@ pub async fn execute_closedown() -> Result<Value> {
 
 /// 执行自定义任务 (已废弃 - 使用任务队列)
 pub async fn execute_custom_task(task_type: &str, params: &str) -> Result<Value> {
-    info!("⚠️ execute_custom_task已废弃，请使用任务队列");
+    info!("execute_custom_task已废弃，请使用任务队列");
     info!("尝试自定义任务: type={}, params={}", task_type, params);
     
     Ok(json!({
@@ -272,7 +272,7 @@ pub async fn execute_custom_task(task_type: &str, params: &str) -> Result<Value>
 
 /// 执行视频识别任务 (已废弃 - 使用任务队列)
 pub async fn execute_video_recognition(video_path: &str) -> Result<Value> {
-    info!("⚠️ execute_video_recognition已废弃，请使用任务队列");
+    info!("execute_video_recognition已废弃，请使用任务队列");
     info!("尝试视频识别: {}", video_path);
     
     Ok(json!({
@@ -284,7 +284,7 @@ pub async fn execute_video_recognition(video_path: &str) -> Result<Value> {
 
 /// 执行系统管理任务 (已废弃 - 使用任务队列)
 pub async fn execute_system_management(action: &str) -> Result<Value> {
-    info!("⚠️ execute_system_management已废弃，请使用任务队列");
+    info!("execute_system_management已废弃，请使用任务队列");
     info!("尝试系统管理: {}", action);
     
     Ok(json!({
@@ -296,13 +296,13 @@ pub async fn execute_system_management(action: &str) -> Result<Value> {
 
 /// 智能战斗 (已废弃 - 使用任务队列)
 pub async fn smart_fight(stage: &str, medicine: i32, stone: i32, times: i32) -> Result<Value> {
-    info!("⚠️ smart_fight已废弃，请使用任务队列");
+    info!("smart_fight已废弃，请使用任务队列");
     execute_fight(stage, medicine, stone, times).await
 }
 
 /// 执行肉鸽任务 (已废弃 - 使用任务队列)
 pub async fn execute_roguelike(theme: &str, mode: i32, starts_count: i32) -> Result<Value> {
-    info!("⚠️ execute_roguelike已废弃，请使用任务队列");
+    info!("execute_roguelike已废弃，请使用任务队列");
     info!("尝试肉鸽: theme={}, mode={}, starts_count={}", theme, mode, starts_count);
     
     Ok(json!({
@@ -316,7 +316,7 @@ pub async fn execute_roguelike(theme: &str, mode: i32, starts_count: i32) -> Res
 
 /// 执行作业任务 (已废弃 - 使用任务队列)
 pub async fn execute_copilot(filename: &str, formation: bool) -> Result<Value> {
-    info!("⚠️ execute_copilot已废弃，请使用任务队列");
+    info!("execute_copilot已废弃，请使用任务队列");
     info!("尝试作业: filename={}, formation={}", filename, formation);
     
     Ok(json!({
@@ -329,7 +329,7 @@ pub async fn execute_copilot(filename: &str, formation: bool) -> Result<Value> {
 
 /// 执行奖励收集任务 (已废弃 - 使用任务队列)
 pub async fn execute_awards(award: bool, mail: bool, recruit: bool, orundum: bool) -> Result<Value> {
-    info!("⚠️ execute_awards已废弃，请使用任务队列");
+    info!("execute_awards已废弃，请使用任务队列");
     info!("尝试奖励收集: award={}, mail={}, recruit={}, orundum={}", award, mail, recruit, orundum);
     
     Ok(json!({
@@ -344,7 +344,7 @@ pub async fn execute_awards(award: bool, mail: bool, recruit: bool, orundum: boo
 
 /// 执行信用商店任务 (已废弃 - 使用任务队列)
 pub async fn execute_credit_store(credit_fight: bool) -> Result<Value> {
-    info!("⚠️ execute_credit_store已废弃，请使用任务队列");
+    info!("execute_credit_store已废弃，请使用任务队列");
     info!("尝试信用商店: credit_fight={}", credit_fight);
     
     Ok(json!({
@@ -356,7 +356,7 @@ pub async fn execute_credit_store(credit_fight: bool) -> Result<Value> {
 
 /// 执行仓库管理任务 (已废弃 - 使用任务队列)
 pub async fn execute_depot_management(enable: bool) -> Result<Value> {
-    info!("⚠️ execute_depot_management已废弃，请使用任务队列");
+    info!("execute_depot_management已废弃，请使用任务队列");
     info!("尝试仓库管理: enable={}", enable);
     
     Ok(json!({
@@ -368,7 +368,7 @@ pub async fn execute_depot_management(enable: bool) -> Result<Value> {
 
 /// 执行干员管理任务 (已废弃 - 使用任务队列)
 pub async fn execute_operator_box(enable: bool) -> Result<Value> {
-    info!("⚠️ execute_operator_box已废弃，请使用任务队列");
+    info!("execute_operator_box已废弃，请使用任务队列");
     info!("尝试干员管理: enable={}", enable);
     
     Ok(json!({
@@ -380,7 +380,7 @@ pub async fn execute_operator_box(enable: bool) -> Result<Value> {
 
 /// 执行保全派驻任务 (已废弃 - 使用任务队列)
 pub async fn execute_sss_copilot(filename: &str, loop_times: i32) -> Result<Value> {
-    info!("⚠️ execute_sss_copilot已废弃，请使用任务队列");
+    info!("execute_sss_copilot已废弃，请使用任务队列");
     info!("尝试保全派驻: filename={}, loop_times={}", filename, loop_times);
     
     Ok(json!({
@@ -393,7 +393,7 @@ pub async fn execute_sss_copilot(filename: &str, loop_times: i32) -> Result<Valu
 
 /// 执行生息演算任务 (已废弃 - 使用任务队列)
 pub async fn execute_reclamation(theme: &str, mode: i32) -> Result<Value> {
-    info!("⚠️ execute_reclamation已废弃，请使用任务队列");
+    info!("execute_reclamation已废弃，请使用任务队列");
     info!("尝试生息演算: theme={}, mode={}", theme, mode);
     
     Ok(json!({
