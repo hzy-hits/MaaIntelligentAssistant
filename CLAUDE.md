@@ -5,6 +5,14 @@
 
 ## 核心架构
 
+### 最新架构 (optimized-server-v2)
+```
+HTTP API (8080) → Enhanced Tools V2 → Task Queue V2 → MAA Worker V2 → thread_local! Assistant
+                ↓
+            SSE Events (实时更新)
+```
+
+### 旧架构 (intelligent-server) 
 ```
 HTTP API (8080) → Enhanced Tools → Task Queue → MAA Worker → maa_sys::Assistant
 ```
@@ -14,28 +22,37 @@ HTTP API (8080) → Enhanced Tools → Task Queue → MAA Worker → maa_sys::As
 - **前端**: React 19 + Vite 5 (端口3000)
 - **FFI**: maa_sys 官方绑定
 - **运行模式**: stub模式(开发) / real模式(生产)
+- **实时更新**: Server-Sent Events (SSE)
 
 ## 项目结构
 
 ```
 src/
-├── bin/maa-intelligent-server.rs   # 唯一服务器入口
+├── bin/
+│   ├── maa-optimized-server.rs     # 最新优化服务器 (推荐)
+│   └── maa-intelligent-server.rs   # 旧版智能服务器
 ├── maa_core/                       # MAA 核心模块
 │   ├── mod.rs                      # 模块导出
 │   ├── basic_ops.rs                # 基础MAA操作
-│   ├── worker.rs                   # MAA工作线程
-│   ├── task_queue.rs               # 任务队列管理
+│   ├── worker.rs                   # MAA工作线程 (旧版)
+│   ├── worker_v2.rs                # MAA工作线程V2 (新版)
+│   ├── task_queue.rs               # 任务队列管理 (旧版)
+│   ├── task_queue_v2.rs            # 任务队列V2 (新版)
+│   ├── task_classification_v2.rs   # 任务分类系统V2
 │   ├── task_status.rs              # 任务状态管理
 │   └── screenshot.rs               # 截图功能
 ├── function_tools/                 # Function Calling 工具集
 │   ├── mod.rs                      # 模块集成和导出
 │   ├── types.rs                    # 核心类型定义
-│   ├── handler.rs                  # 工具处理器
+│   ├── handler.rs                  # 工具处理器 (旧版)
+│   ├── handler_v2.rs               # 工具处理器V2 (新版)
 │   ├── core_game.rs                # 核心游戏功能 (4个工具)
 │   ├── advanced_automation.rs      # 高级自动化 (4个工具)
 │   ├── support_features.rs         # 辅助功能 (4个工具)
 │   ├── system_features.rs          # 系统功能 (4个工具)
 │   └── queue_client.rs             # 队列客户端
+├── sse/                            # Server-Sent Events (新增)
+│   └── mod.rs                      # SSE实时更新模块
 ├── ai_client/                      # AI 客户端集成
 │   ├── mod.rs                      # 统一AI接口
 │   ├── client.rs                   # 客户端实现
@@ -87,23 +104,48 @@ src/
 
 ## API端点
 
+### optimized-server-v2 (推荐)
 ```http
 GET  /health                        # 健康检查
 GET  /tools                         # 获取16个工具定义
+POST /call                          # 执行Function Calling
+GET  /status                        # MAA状态查询
+GET  /sse/tasks                     # SSE实时任务更新流
+POST /chat                          # AI聊天接口
+```
+
+### intelligent-server (旧版)
+```http
+GET  /health                        # 健康检查
+GET  /tools                         # 获取16个工具定义  
 POST /call                          # 执行Function Calling
 GET  /status                        # MAA状态查询
 ```
 
 ## 运行模式
 
-### 开发模式 (stub)
+### 优化服务器V2 (推荐)
+
+#### 开发模式 (stub)
 ```bash
-cargo run --no-default-features --features stub-mode
+cargo run --bin maa-optimized-server --no-default-features --features stub-mode
 ```
 
-### 生产模式 (默认)
+#### 生产模式 (默认)
 ```bash
-cargo run                           # 真实MAA Core集成
+cargo run --bin maa-optimized-server  # 真实MAA Core集成 + SSE支持
+```
+
+### 智能服务器 (旧版)
+
+#### 开发模式 (stub)
+```bash
+cargo run --bin maa-intelligent-server --no-default-features --features stub-mode
+```
+
+#### 生产模式 (默认)  
+```bash
+cargo run --bin maa-intelligent-server  # 真实MAA Core集成
 ```
 
 ## 环境配置
@@ -383,12 +425,24 @@ curl -X POST http://localhost:8080/chat \
 | AI Client | `docs/modules/AI_CLIENT.md` | `src/ai_client/` |
 | 系统架构 | `docs/architecture/SYSTEM_ARCHITECTURE.md` | 全项目概览 |
 
-### 2025-08-20 架构状态
+### 2025-08-20 架构优化升级
 
-#### 当前实现
-- **服务器**: maa-intelligent-server.rs (Axum + tokio)
-- **架构**: HTTP → Function Tools → Task Queue → MAA Worker
+#### V2优化服务器 (最新)
+- **服务器**: maa-optimized-server.rs (Axum + tokio + SSE)
+- **架构**: HTTP → Function Tools V2 → Task Queue V2 → MAA Worker V2
+- **并发模型**: thread_local! 单例 (无锁设计)
+- **任务队列**: 单队列+优先级系统
+- **实时更新**: Server-Sent Events支持
 - **工具数量**: 16个完整Function Calling工具
+- **AI集成**: 支持多提供商聊天接口
+
+#### V1智能服务器 (旧版)
+- **服务器**: maa-intelligent-server.rs (Axum + tokio)  
+- **架构**: HTTP → Function Tools → Task Queue → MAA Worker
+- **并发模型**: Arc<Mutex<Assistant>> (锁竞争)
+- **任务队列**: 双队列系统(高优先级+普通)
+- **实时更新**: 无，需要轮询
+- **工具数量**: 16个Function Calling工具
 - **AI集成**: 支持多提供商聊天接口
 
 #### 验证状态
@@ -396,14 +450,20 @@ curl -X POST http://localhost:8080/chat \
 # 编译检查
 cargo check
 
-# 启动服务器
+# 启动优化服务器V2 (推荐)
+cargo run --bin maa-optimized-server
+
+# 启动智能服务器V1
 cargo run --bin maa-intelligent-server
 
 # 健康检查
 curl localhost:8080/health
 
-# 工具列表
+# 工具列表  
 curl localhost:8080/tools
+
+# SSE实时更新 (仅V2支持)
+curl -N -H "Accept: text/event-stream" localhost:8080/sse/tasks
 ```
 
 ---
@@ -445,6 +505,101 @@ curl -X POST http://localhost:8080/call \
 
 ---
 
+## V2优化框架核心改进 (2025-08-20)
+
+### 🚀 性能提升
+
+| 指标 | V1 (intelligent) | V2 (optimized) | 改进 |
+|-----|-----------------|----------------|------|
+| **架构层次** | 7层调用链 | 4层调用链 | -43% |
+| **并发模型** | Arc<Mutex<>> | thread_local! | 无锁设计 |
+| **任务队列** | 双队列系统 | 单队列+优先级 | 简化50% |
+| **实时更新** | ❌ 轮询 | ✅ SSE推送 | 用户体验质升 |
+| **JSON序列化** | 多次重复 | 直接传递 | 减少序列化开销 |
+
+### 🎯 新增特性
+
+#### SSE实时更新
+```javascript  
+// 前端自动连接SSE流
+const eventSource = new EventSource('/sse/tasks');
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  // 实时显示任务进度: started, progress, completed, failed
+};
+```
+
+#### 智能任务分类
+```rust
+// 自动区分同步/异步任务
+match classify_task(&function_name) {
+    TaskExecutionMode::Synchronous => {
+        // 截图、状态查询等立即返回
+    },
+    TaskExecutionMode::Asynchronous => {
+        // 战斗、基建等后台执行，SSE推送进度
+    }
+}
+```
+
+#### 无锁并发设计
+```rust
+// V1: 复杂锁竞争
+Arc<Mutex<Assistant>>
+
+// V2: 线程本地存储
+thread_local! {
+    static MAA_ASSISTANT: RefCell<Option<Assistant>> = RefCell::new(None);
+}
+```
+
+### 📊 架构简化对比
+
+#### V1架构问题
+- 🐌 **7层调用链**: HTTP → MaaBackend → MaaService → ConnectionManager → Arc<Mutex<>> → Assistant
+- 🔒 **锁竞争**: 多线程访问同一Assistant实例造成阻塞  
+- 🔄 **重复序列化**: JSON参数在多层间重复序列化/反序列化
+- 📨 **无实时反馈**: 用户需要手动刷新任务状态
+
+#### V2架构优势  
+- ⚡ **4层调用链**: HTTP → Enhanced Tools V2 → Task Queue V2 → Worker V2 → thread_local!
+- 🚀 **无锁设计**: 每线程独立Assistant实例，零锁竞争
+- 📦 **直接传递**: JSON参数直接传递，避免重复序列化  
+- 📡 **实时推送**: SSE自动推送任务进度，用户体验显著提升
+
+### 🛠️ 开发体验改进
+
+#### 调试增强
+```rust
+// V2新增详细调试信息
+console.log('📸 Screenshot Debug Info:');
+console.log('- Base64 length:', base64Data.length);
+console.log('- Data URL length:', screenshotUrl.length);
+```
+
+#### 错误处理
+```rust  
+// V2完善的错误处理和重试机制
+if screenshotUrl.length > 2000000 {
+    console.warn('⚠️ Data URL might exceed browser limits');
+}
+```
+
+### 📈 用户体验提升
+
+#### V1用户流程
+```
+用户点击 → 等待 → 手动刷新 → 查看结果
+```
+
+#### V2用户流程  
+```
+用户点击 → 立即反馈 → 实时进度更新 → 自动显示结果
+```
+
+---
+
+**V2设计哲学**: "这个有必要吗？" - 简化优于复杂，实用优于完美  
 **文档原则**: 简洁、准确、实用  
 **架构原则**: 质疑抽象，保留核心  
 **维护原则**: 文档与代码同步

@@ -17,7 +17,10 @@ const MAAChat = () => {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
+  const [sseConnected, setSseConnected] = useState(false)
+  const [taskUpdates, setTaskUpdates] = useState({}) // 存储任务实时更新
   const messagesEndRef = useRef(null)
+  const sseRef = useRef(null)
 
   // 处理重置按钮（需要先定义，才能在useEffect中调用）
   const handleReset = async () => {
@@ -61,11 +64,109 @@ const MAAChat = () => {
     }
   }
 
-  // 页面加载时重置对话
+  // 连接SSE获取实时任务更新
+  const connectSSE = () => {
+    if (sseRef.current) {
+      console.log('🔄 关闭现有SSE连接')
+      sseRef.current.close()
+    }
+
+    console.log('🔗 正在连接SSE...')
+    const eventSource = new EventSource('http://localhost:8080/sse/tasks')
+    sseRef.current = eventSource
+
+    eventSource.onopen = () => {
+      console.log('✅ SSE连接已建立')
+      setSseConnected(true)
+    }
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        console.log('📨 收到SSE消息:', data)
+        
+        // 更新任务状态
+        if (data.task_id) {
+          setTaskUpdates(prev => ({
+            ...prev,
+            [data.task_id]: data
+          }))
+          
+          // 为重要事件添加消息通知
+          if (data.event_type === 'completed') {
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              role: 'assistant',
+              content: `✅ 任务完成通知：${data.message}`
+            }])
+          } else if (data.event_type === 'failed') {
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              role: 'assistant', 
+              content: `❌ 任务失败通知：${data.message}`
+            }])
+          } else if (data.event_type === 'started') {
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              role: 'assistant',
+              content: `🚀 任务启动：${data.message}`
+            }])
+          }
+        }
+      } catch (error) {
+        console.error('❌ 解析SSE消息失败:', error)
+      }
+    }
+
+    eventSource.onerror = (error) => {
+      console.error('❌ SSE连接错误:', error)
+      setSseConnected(false)
+      
+      // 5秒后重试连接
+      setTimeout(() => {
+        if (isConnected) {
+          console.log('🔄 重新连接SSE...')
+          connectSSE()
+        }
+      }, 5000)
+    }
+  }
+
+  // 页面加载时重置对话和连接SSE
   useEffect(() => {
     console.log('🚀 页面加载，重置对话历史')
     handleReset()
   }, []) // 只在组件挂载时执行一次
+
+  // 连接状态变化时管理SSE
+  useEffect(() => {
+    if (isConnected && !sseConnected) {
+      console.log('📡 MAA已连接，开始连接SSE')
+      connectSSE()
+    } else if (!isConnected && sseRef.current) {
+      console.log('🔌 MAA断开，关闭SSE连接')
+      sseRef.current.close()
+      setSseConnected(false)
+    }
+    
+    // 清理函数
+    return () => {
+      if (sseRef.current) {
+        console.log('🧹 清理SSE连接')
+        sseRef.current.close()
+      }
+    }
+  }, [isConnected])
+  
+  // 组件卸载时清理SSE
+  useEffect(() => {
+    return () => {
+      if (sseRef.current) {
+        console.log('🧹 组件卸载，关闭SSE连接')
+        sseRef.current.close()
+      }
+    }
+  }, [])
 
   // 检查MAA连接
   useEffect(() => {
@@ -162,8 +263,8 @@ const MAAChat = () => {
       statusEl.className = `status ${status}`
       switch (status) {
         case 'connected':
-          statusEl.innerHTML = '<div class="status-dot"></div>MAA设备已连接'
-          infoEl.textContent = '可以开始对话'
+          statusEl.innerHTML = `<div class="status-dot"></div>MAA设备已连接${sseConnected ? ' • SSE已连接' : ''}`
+          infoEl.textContent = `可以开始对话${sseConnected ? ' • 支持实时更新' : ''}`
           console.log('🟢 状态设置为: 已连接')
           break
         case 'disconnected':
@@ -322,29 +423,43 @@ const MAAChat = () => {
             if (typeof result.result === 'string') {
               resultText = `✅ ${result.result}`
             } else {
-              // 特殊处理截图结果
-              if (functionName === 'maa_take_screenshot' && result.result.base64_data && result.result.status === 'success') {
-                // 为Function Calling的截图创建特殊消息
-                const screenshotId = result.result.screenshot_id;
-                const originalImageUrl = `http://localhost:8080/screenshot/${screenshotId}/original`;
+              // 特殊处理截图结果 - 兼容不同服务器格式
+              if (functionName === 'maa_take_screenshot' && result.success && result.result) {
+                let base64Data, fileSize, timestamp, screenshotId;
                 
-                // 创建截图消息，使用base64 URL但不保存到历史
-                const screenshotUrl = `data:image/png;base64,${result.result.base64_data}`;
+                if (result.result.screenshot) {
+                  // 优化服务器格式
+                  base64Data = result.result.screenshot;
+                  fileSize = result.result.size || 0;
+                  timestamp = result.result.timestamp;
+                  screenshotId = `screenshot_${Date.now()}`;
+                } else if (result.result.base64_data) {
+                  // 智能服务器格式
+                  base64Data = result.result.base64_data;
+                  fileSize = result.result.file_size || 0;
+                  timestamp = result.result.timestamp;
+                  screenshotId = result.result.screenshot_id || `screenshot_${Date.now()}`;
+                }
                 
-                setMessages(prev => [...prev, {
-                  id: Date.now() + 2,
-                  role: 'assistant',
-                  type: 'screenshot_display',
-                  content: {
-                    text: `✅ 截图完成！\n\n*这是MAA当前看到的游戏画面，点击图片查看原图*\n\n**截图信息:**\n- 截图ID: ${screenshotId}\n- 文件大小: ${Math.round(result.result.file_size / 1024)}KB\n- 时间戳: ${new Date(result.result.timestamp).toLocaleString()}`,
-                    screenshotUrl: screenshotUrl,
-                    originalUrl: originalImageUrl,
-                    screenshotId: screenshotId
-                  }
-                }]);
-                
-                // 跳过后面的普通结果显示逻辑
-                resultText = null;
+                if (base64Data) {
+                  // 创建截图消息，使用base64 URL但不保存到历史
+                  const screenshotUrl = `data:image/png;base64,${base64Data}`;
+                  
+                  setMessages(prev => [...prev, {
+                    id: Date.now() + 2,
+                    role: 'assistant',
+                    type: 'screenshot_display',
+                    content: {
+                      text: `✅ 截图完成！\n\n*这是MAA当前看到的游戏画面*\n\n**截图信息:**\n- 数据大小: ${Math.round(fileSize / 1024)}KB\n- 时间戳: ${timestamp ? new Date(timestamp).toLocaleString() : '未知'}\n- 服务器: ${result.backend || 'MAA'}\n\n点击图片可放大查看`,
+                      screenshotUrl: screenshotUrl,
+                      originalUrl: screenshotUrl,
+                      screenshotId: screenshotId
+                    }
+                  }]);
+                  
+                  // 跳过后面的普通结果显示逻辑
+                  resultText = null;
+                }
               } else {
                 resultText = `✅ 执行成功\n\n\`\`\`json\n${JSON.stringify(result.result, null, 2)}\n\`\`\``
               }
@@ -414,45 +529,76 @@ const MAAChat = () => {
       // 调用MAA截图工具
       const response = await callMAAFunction('maa_take_screenshot', {})
       
-      console.log('截图响应数据:', response)
+      console.log('📸 截图响应数据:', response)
       
-      if (response.success && response.result && response.result.status === 'success') {
-        console.log('截图base64数据长度:', response.result.base64_data?.length)
+      if (response.success && response.result) {
+        // 兼容不同的响应格式
+        let base64Data, fileSize, timestamp, screenshotId;
+        
+        if (response.result.screenshot) {
+          // 优化服务器格式
+          base64Data = response.result.screenshot;
+          fileSize = response.result.size || 0;
+          timestamp = response.result.timestamp;
+          screenshotId = `screenshot_${Date.now()}`;
+        } else if (response.result.base64_data) {
+          // 智能服务器格式
+          base64Data = response.result.base64_data;
+          fileSize = response.result.file_size || 0;
+          timestamp = response.result.timestamp;
+          screenshotId = response.result.screenshot_id || `screenshot_${Date.now()}`;
+        } else {
+          throw new Error('未找到截图数据');
+        }
+        
+        console.log('✅ 截图base64数据长度:', base64Data?.length)
         
         // 验证base64数据
-        const base64Data = response.result.base64_data;
         if (!base64Data || base64Data.length === 0) {
           throw new Error('截图数据为空');
         }
         
-        // 创建带有点击预览功能的截图消息
-        const screenshotId = response.result.screenshot_id;
-        const originalImageUrl = `http://localhost:8080/screenshot/${screenshotId}/original`;
-        
         // 创建截图消息，临时显示但不发送给AI
         const screenshotUrl = `data:image/png;base64,${base64Data}`;
+        
+        // 调试信息
+        console.log('📸 Screenshot Debug Info:');
+        console.log('- Base64 length:', base64Data.length);
+        console.log('- File size:', fileSize, 'bytes');
+        console.log('- Data URL length:', screenshotUrl.length);
+        console.log('- Base64 starts with:', base64Data.substring(0, 50));
+        
+        // 检查浏览器的data URL限制
+        if (screenshotUrl.length > 2000000) { // 2MB limit for Chrome
+          console.warn('⚠️ Data URL might exceed browser limits:', screenshotUrl.length, 'characters');
+        }
         
         setMessages(prev => [...prev, {
           id: Date.now(),
           role: 'assistant',
           type: 'screenshot_display',
           content: {
-            text: `截图完成！\n\n*这是MAA当前看到的游戏画面，点击图片查看原图*\n\n**截图信息:**\n- 截图ID: ${screenshotId}\n- 文件大小: ${Math.round(response.result.file_size / 1024)}KB\n- 时间戳: ${new Date(response.result.timestamp).toLocaleString()}`,
+            text: `📸 截图完成！\n\n*这是MAA当前看到的游戏画面*\n\n**截图信息:**\n- 数据大小: ${Math.round(fileSize / 1024)}KB (Base64: ${Math.round(base64Data.length / 1024)}KB)\n- 时间戳: ${timestamp ? new Date(timestamp).toLocaleString() : '未知'}\n- 服务器: ${response.backend || 'MAA'}\n- Data URL长度: ${Math.round(screenshotUrl.length / 1024)}KB\n\n点击图片可放大查看`,
             screenshotUrl: screenshotUrl,
-            originalUrl: originalImageUrl,
-            screenshotId: screenshotId
+            originalUrl: screenshotUrl, // 使用相同的URL
+            screenshotId: screenshotId,
+            debugInfo: {
+              base64Length: base64Data.length,
+              fileSize: fileSize,
+              dataUrlLength: screenshotUrl.length
+            }
           }
         }])
       } else {
-        console.error('截图失败响应:', response)
-        throw new Error(response.result?.message || response.message || '截图失败')
+        console.error('❌ 截图失败响应:', response)
+        throw new Error(response.error?.message || response.message || '截图请求失败')
       }
     } catch (error) {
-      console.error('截图失败:', error)
+      console.error('❌ 截图失败:', error)
       setMessages(prev => [...prev, {
         id: Date.now(),
         role: 'assistant',
-        content: `截图失败：${error.message}`
+        content: `❌ 截图失败：${error.message}`
       }])
     } finally {
       setIsLoading(false)
@@ -497,6 +643,21 @@ const MAAChat = () => {
                             className="screenshot-thumbnail"
                             onClick={() => window.open(message.content.originalUrl, '_blank')}
                             title="点击查看原图"
+                            onLoad={(e) => {
+                              console.log('✅ Image loaded successfully:', e.target.naturalWidth, 'x', e.target.naturalHeight);
+                            }}
+                            onError={(e) => {
+                              console.error('❌ Image failed to load:', e);
+                              e.target.style.display = 'none';
+                              // 显示错误信息
+                              const errorDiv = document.createElement('div');
+                              errorDiv.textContent = '图片加载失败 - 点击查看调试信息';
+                              errorDiv.style.cssText = 'padding: 20px; background: #f0f0f0; border: 1px dashed #ccc; text-align: center; cursor: pointer;';
+                              errorDiv.onclick = () => {
+                                console.log('Debug info:', message.content.debugInfo);
+                              };
+                              e.target.parentNode.insertBefore(errorDiv, e.target.nextSibling);
+                            }}
                           />
                           <div className="screenshot-overlay">
                             <span>点击查看原图</span>
