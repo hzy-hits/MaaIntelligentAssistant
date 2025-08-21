@@ -135,6 +135,10 @@ async fn run_server() -> Result<()> {
     let sse_manager = SseManager::new(event_broadcaster.clone());
     info!("✅ SSE管理器已创建，连接到真实的任务事件流");
     
+    // 设置全局SSE广播器，让MAA Core回调能转发到SSE
+    maa_intelligent_server::maa_core::set_global_sse_broadcaster(event_broadcaster.clone());
+    info!("✅ 已配置MAA Core回调转发到SSE系统");
+    
     // 启动MAA工作线程V2（解决Send问题，使用task::spawn_local）
     tokio::task::spawn_local(async move {
         maa_worker.run(task_receiver).await;
@@ -187,6 +191,7 @@ async fn run_server() -> Result<()> {
         // 新增SSE端点
         .route("/sse/tasks", get(sse_all_tasks_handler))
         .route("/sse/task/{task_id}", get(sse_single_task_handler))
+        .route("/sse/test", post(sse_test_handler))
         
         // 任务状态查询端点（优化版）
         .route("/task/{task_id}/status", get(task_status_handler_v2))
@@ -215,6 +220,7 @@ async fn run_server() -> Result<()> {
     info!("💓 健康检查: http://localhost:{}{}", port, CONFIG.server.health_check_path);
     info!("🔄 SSE任务流: http://localhost:{}/sse/tasks", port);
     info!("🎯 单任务SSE: http://localhost:{}/sse/task/{{task_id}}", port);
+    info!("🧪 SSE测试接口: http://localhost:{}/sse/test", port);
     info!("📈 优化统计: http://localhost:{}/optimization/stats", port);
 
     let listener = TcpListener::bind(&addr).await?;
@@ -353,7 +359,7 @@ async fn call_handler(
 async fn sse_all_tasks_handler(
     State(state): State<AppStateV2>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>> + Send + 'static> {
-    info!("客户端连接到所有任务SSE流");
+    info!("🔗 前端客户端连接到所有任务SSE流 (/sse/tasks)");
     create_task_progress_sse(state.sse_manager)
 }
 
@@ -364,6 +370,59 @@ async fn sse_single_task_handler(
 ) -> Sse<impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>> + Send + 'static> {
     info!("客户端连接到任务 {} 的SSE流", task_id);
     create_single_task_sse(state.sse_manager, task_id)
+}
+
+/// SSE测试处理器 - 用于前后端联调测试
+#[derive(Debug, serde::Deserialize)]
+struct SseTestRequest {
+    message: String,
+    event_type: Option<String>,
+}
+
+async fn sse_test_handler(
+    State(state): State<AppStateV2>,
+    Json(request): Json<SseTestRequest>,
+) -> Json<serde_json::Value> {
+    use maa_intelligent_server::maa_core::worker_v2::TaskProgressEvent;
+    use chrono::Utc;
+    
+    let event_type = request.event_type.clone().unwrap_or_else(|| "test".to_string());
+    info!("🧪 收到SSE测试请求: {} (事件类型: {})", request.message, event_type);
+    
+    // 创建测试事件
+    let test_event = TaskProgressEvent {
+        task_id: 9999, // 使用特殊的测试任务ID
+        task_type: "sse_test".to_string(),
+        event_type,
+        message: request.message,
+        data: Some(json!({
+            "test": true,
+            "timestamp": Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            "message": "这是一个SSE测试事件，用于验证前后端连接"
+        })),
+        timestamp: Utc::now(),
+    };
+    
+    // 发送测试事件到SSE流
+    match state.sse_manager.send_task_event(test_event) {
+        Ok(()) => {
+            info!("✅ SSE测试事件发送成功");
+            Json(json!({
+                "success": true,
+                "message": "SSE测试事件已发送",
+                "event_type": request.event_type.unwrap_or_else(|| "test".to_string()),
+                "sent_at": Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string()
+            }))
+        },
+        Err(e) => {
+            error!("❌ SSE测试事件发送失败: {:?}", e);
+            Json(json!({
+                "success": false,
+                "error": format!("发送失败: {:?}", e),
+                "event_type": request.event_type.unwrap_or_else(|| "test".to_string())
+            }))
+        }
+    }
 }
 
 /// 任务状态查询处理器V2（使用内部状态）

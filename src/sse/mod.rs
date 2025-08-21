@@ -42,7 +42,7 @@ impl SseManager {
         let heartbeat_stream = tokio_stream::wrappers::IntervalStream::new(
             tokio::time::interval(Duration::from_secs(30))
         ).map(|_| {
-            debug!("发送SSE心跳");
+            info!("🔄 发送SSE心跳事件");
             Ok(Event::default()
                 .event("heartbeat")
                 .data(json!({
@@ -53,7 +53,8 @@ impl SseManager {
         
         let task_event_stream = async_stream::stream! {
             while let Ok(task_event) = event_rx.recv().await {
-                debug!("接收到任务事件: {:?}", task_event);
+                info!("📨 SSE接收到任务事件: task_id={}, event_type={}, message={}", 
+                      task_event.task_id, task_event.event_type, task_event.message);
                 
                 // 转换为SSE事件
                 let sse_event = Event::default()

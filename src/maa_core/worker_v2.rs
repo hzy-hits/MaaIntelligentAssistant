@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 use base64;
 
 use super::{MaaCore, task_queue_v2::*};
-use super::task_classification_v2::*;
+// use super::task_classification_v2::*; // 未使用的导入已移除
 
 /// SSE事件类型
 #[derive(Debug, Clone)]
@@ -58,6 +58,84 @@ impl MaaWorkerV2 {
         (worker, event_broadcaster)
     }
     
+    /// 处理MAA Core回调事件并转发到SSE
+    pub fn handle_maa_callback(&mut self, task_id: i32, msg_code: i32, details: Value) {
+        let event_type = match msg_code {
+            10001 => "taskchain_started",
+            10002 => "taskchain_completed", 
+            10000 => "taskchain_failed",
+            20001 => "subtask_started",
+            20002 => "subtask_completed",
+            20003 => "subtask_info",
+            20000 => "subtask_failed",
+            _ => "unknown"
+        };
+        
+        // 提取任务详情
+        let task_name = details.get("details")
+            .and_then(|d| d.get("task"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("unknown");
+            
+        let task_chain = details.get("taskchain")
+            .and_then(|tc| tc.as_str())
+            .unwrap_or("unknown");
+            
+        let message = match msg_code {
+            10001 => format!("任务链 {} 开始执行", task_chain),
+            10002 => format!("任务链 {} 执行完成", task_chain),
+            10000 => format!("任务链 {} 执行失败", task_chain),
+            20001 => format!("开始执行子任务: {}", task_name),
+            20002 => format!("子任务 {} 完成", task_name),
+            20003 => {
+                if let Some(facility) = details.get("details").and_then(|d| d.get("facility")).and_then(|f| f.as_str()) {
+                    format!("处理设施: {}", facility)
+                } else {
+                    format!("子任务信息: {}", task_name)
+                }
+            },
+            20000 => format!("子任务 {} 失败", task_name),
+            _ => format!("未知事件: {}", task_name)
+        };
+        
+        // 更新内部任务状态
+        if let Some(status) = self.task_statuses.get_mut(&task_id) {
+            match msg_code {
+                10002 => {
+                    // 任务链完成，标记为成功完成
+                    status.mark_completed(details.clone());
+                },
+                10000 | 20000 => {
+                    // 任务失败
+                    let error = details.get("what")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("未知错误")
+                        .to_string();
+                    status.mark_failed(error);
+                },
+                _ => {
+                    // 进度更新 - 使用status字段存储进度信息
+                    status.status = format!("running: {}", message);
+                }
+            }
+        }
+        
+        // 转发到SSE系统
+        let sse_event = TaskProgressEvent {
+            task_id,
+            task_type: task_chain.to_string(),
+            event_type: event_type.to_string(),
+            message,
+            data: Some(details),
+            timestamp: Utc::now(),
+        };
+        
+        // 发送SSE事件（忽略发送失败，避免阻塞）
+        let _ = self.event_broadcaster.send(sse_event);
+        
+        debug!("MAA回调事件已转发到SSE: task_id={}, event_type={}, msg_code={}", task_id, event_type, msg_code);
+    }
+    
     /// 使用外部广播器创建MAA工作者（用于工厂模式）
     pub fn new_with_broadcaster(event_broadcaster: broadcast::Sender<TaskProgressEvent>) -> Self {
         info!("使用外部广播器创建MAA工作者实例V2");
@@ -97,68 +175,29 @@ impl MaaWorkerV2 {
         status.mark_running();
         self.task_statuses.insert(task_id, status);
         
-        // 发送任务开始事件
-        let _ = self.event_broadcaster.send(TaskProgressEvent {
-            task_id,
-            task_type: task_type.clone(),
-            event_type: "started".to_string(),
-            message: format!("任务 {} 开始执行", get_task_type_description(&task_type)),
-            data: Some(json!({
-                "task_id": task_id,
-                "priority": task.priority,
-                "execution_mode": task.execution_mode,
-                "estimated_duration": estimate_task_duration(&task_type)
-            })),
-            timestamp: start_time,
-        });
+        // 不再手动发送started事件 - 由MAA Core回调统一处理
+        info!("开始执行任务: {} (task_id: {})", task_type, task_id);
         
         // 执行具体的MAA任务
         let result = self.execute_maa_task(&task).await;
         
-        // 更新任务状态并发送完成事件
+        // 更新任务状态 - 不再手动发送完成/失败事件，由MAA Core回调统一处理
         if let Some(status) = self.task_statuses.get_mut(&task_id) {
             match &result {
                 Ok(task_result) => {
                     if task_result.success {
                         status.mark_completed(task_result.result.clone().unwrap_or(json!({})));
-                        
-                        // 发送成功事件
-                        let _ = self.event_broadcaster.send(TaskProgressEvent {
-                            task_id,
-                            task_type: task_type.clone(),
-                            event_type: "completed".to_string(),
-                            message: format!("任务 {} 执行成功", get_task_type_description(&task_type)),
-                            data: task_result.result.clone(),
-                            timestamp: Utc::now(),
-                        });
+                        info!("任务 {} 执行成功 (task_id: {})", task_type, task_id);
                     } else {
                         let error = task_result.error.clone().unwrap_or("未知错误".to_string());
                         status.mark_failed(error.clone());
-                        
-                        // 发送失败事件
-                        let _ = self.event_broadcaster.send(TaskProgressEvent {
-                            task_id,
-                            task_type: task_type.clone(),
-                            event_type: "failed".to_string(),
-                            message: format!("任务 {} 执行失败: {}", get_task_type_description(&task_type), error),
-                            data: Some(json!({"error": error})),
-                            timestamp: Utc::now(),
-                        });
+                        warn!("任务 {} 执行失败 (task_id: {}): {}", task_type, task_id, error);
                     }
                 },
                 Err(e) => {
                     let error = format!("{}", e);
                     status.mark_failed(error.clone());
-                    
-                    // 发送错误事件
-                    let _ = self.event_broadcaster.send(TaskProgressEvent {
-                        task_id,
-                        task_type: task_type.clone(),
-                        event_type: "failed".to_string(),
-                        message: format!("任务 {} 发生错误: {}", get_task_type_description(&task_type), error),
-                        data: Some(json!({"error": error})),
-                        timestamp: Utc::now(),
-                    });
+                    error!("任务 {} 发生错误 (task_id: {}): {}", task_type, task_id, error);
                 }
             }
         }
@@ -299,6 +338,276 @@ impl MaaWorkerV2 {
                         "status": "基建管理任务已提交到MAA Core"
                     })),
                     Err(e) => Err(anyhow!("基建管理任务失败: {}", e))
+                }
+            },
+            "maa_recruit_enhanced" => {
+                debug!("执行公开招募任务");
+                let max_times = task.parameters.get("max_times")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(4);
+                let expedite = task.parameters.get("expedite")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let skip_robot = task.parameters.get("skip_robot")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                
+                let params = format!(
+                    r#"{{"enable": true, "select": [3, 4, 5, 6], "confirm": [3, 4, 5, 6], "times": {}, "set_time": true, "expedite": {}, "skip_robot": {}}}"#,
+                    max_times, expedite, skip_robot
+                );
+                
+                match self.core.execute_task("Recruit", &params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "max_times": max_times,
+                        "expedite": expedite,
+                        "skip_robot": skip_robot,
+                        "status": "招募任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("招募任务失败: {}", e))
+                }
+            },
+            "maa_rewards_enhanced" => {
+                debug!("执行奖励收集任务");
+                let award_type = task.parameters.get("award_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("all");
+                
+                let params = r#"{"enable": true}"#;
+                
+                match self.core.execute_task("Award", params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "award_type": award_type,
+                        "status": "奖励收集任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("奖励收集失败: {}", e))
+                }
+            },
+            "maa_closedown" => {
+                debug!("执行游戏关闭任务");
+                let params = r#"{"enable": true}"#;
+                
+                match self.core.execute_task("CloseDown", params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "status": "游戏关闭任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("游戏关闭失败: {}", e))
+                }
+            },
+            "maa_roguelike_enhanced" => {
+                debug!("执行集成战略任务");
+                let theme = task.parameters.get("theme")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Phantom");
+                let mode = task.parameters.get("mode")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                
+                let params = format!(
+                    r#"{{"enable": true, "theme": "{}", "mode": {}}}"#,
+                    theme, mode
+                );
+                
+                match self.core.execute_task("Roguelike", &params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "theme": theme,
+                        "mode": mode,
+                        "status": "集成战略任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("集成战略任务失败: {}", e))
+                }
+            },
+            "maa_copilot_enhanced" => {
+                debug!("执行作业任务");
+                let filename = task.parameters.get("filename")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                
+                let params = format!(
+                    r#"{{"enable": true, "filename": "{}"}}"#,
+                    filename
+                );
+                
+                match self.core.execute_task("Copilot", &params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "filename": filename,
+                        "status": "作业任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("作业任务失败: {}", e))
+                }
+            },
+            "maa_sss_copilot" => {
+                debug!("执行保全派驻任务");
+                let filename = task.parameters.get("filename")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                
+                let params = format!(
+                    r#"{{"enable": true, "filename": "{}"}}"#,
+                    filename
+                );
+                
+                match self.core.execute_task("SSSCopilot", &params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "filename": filename,
+                        "status": "保全派驻任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("保全派驻任务失败: {}", e))
+                }
+            },
+            "maa_reclamation" => {
+                debug!("执行生息演算任务");
+                let theme = task.parameters.get("theme")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Fire");
+                let mode = task.parameters.get("mode")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                
+                let params = format!(
+                    r#"{{"enable": true, "theme": "{}", "mode": {}}}"#,
+                    theme, mode
+                );
+                
+                match self.core.execute_task("Reclamation", &params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "theme": theme,
+                        "mode": mode,
+                        "status": "生息演算任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("生息演算任务失败: {}", e))
+                }
+            },
+            "maa_credit_store_enhanced" => {
+                debug!("执行信用商店任务");
+                let buy_first = task.parameters.get("buy_first")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+                    .unwrap_or_else(|| vec!["龙门币", "赤金"]);
+                
+                let buy_first_json = buy_first.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(",");
+                let params = format!(
+                    r#"{{"enable": true, "buy_first": [{}]}}"#,
+                    buy_first_json
+                );
+                
+                match self.core.execute_task("Mall", &params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "buy_first": buy_first,
+                        "status": "信用商店任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("信用商店任务失败: {}", e))
+                }
+            },
+            "maa_depot_management" => {
+                debug!("执行仓库管理任务");
+                let params = r#"{"enable": true}"#;
+                
+                match self.core.execute_task("Depot", params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "status": "仓库管理任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("仓库管理任务失败: {}", e))
+                }
+            },
+            "maa_operator_box" => {
+                debug!("执行干员管理任务");
+                let params = r#"{"enable": true}"#;
+                
+                match self.core.execute_task("OperBox", params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "status": "干员管理任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("干员管理任务失败: {}", e))
+                }
+            },
+            "maa_custom_task" => {
+                debug!("执行自定义任务");
+                let task_name = task.parameters.get("task_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("CustomTask");
+                let custom_params = task.parameters.get("params")
+                    .cloned()
+                    .unwrap_or(json!({}));
+                
+                let params_str = custom_params.to_string();
+                
+                match self.core.execute_task(task_name, &params_str) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "task_name": task_name,
+                        "status": "自定义任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("自定义任务失败: {}", e))
+                }
+            },
+            "maa_video_recognition" => {
+                debug!("执行视频识别任务");
+                let video_path = task.parameters.get("video_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                
+                let params = format!(
+                    r#"{{"enable": true, "filename": "{}"}}"#,
+                    video_path
+                );
+                
+                match self.core.execute_task("VideoRecognition", &params) {
+                    Ok(task_id) => Ok(json!({
+                        "maa_task_id": task_id,
+                        "video_path": video_path,
+                        "status": "视频识别任务已提交到MAA Core"
+                    })),
+                    Err(e) => Err(anyhow!("视频识别任务失败: {}", e))
+                }
+            },
+            "maa_system_management" => {
+                debug!("执行系统管理任务");
+                let operation = task.parameters.get("operation")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("status");
+                
+                match operation {
+                    "restart" => {
+                        let params = r#"{"enable": true}"#;
+                        match self.core.execute_task("StartUp", params) {
+                            Ok(task_id) => Ok(json!({
+                                "maa_task_id": task_id,
+                                "operation": "restart",
+                                "status": "系统重启任务已提交到MAA Core"
+                            })),
+                            Err(e) => Err(anyhow!("系统重启失败: {}", e))
+                        }
+                    },
+                    "stop" => {
+                        let params = r#"{"enable": true}"#;
+                        match self.core.execute_task("CloseDown", params) {
+                            Ok(task_id) => Ok(json!({
+                                "maa_task_id": task_id,
+                                "operation": "stop",
+                                "status": "系统停止任务已提交到MAA Core"
+                            })),
+                            Err(e) => Err(anyhow!("系统停止失败: {}", e))
+                        }
+                    },
+                    _ => {
+                        Ok(json!({
+                            "operation": operation,
+                            "status": "系统状态查询完成",
+                            "maa_initialized": self.core.is_initialized(),
+                            "maa_connected": self.core.is_connected()
+                        }))
+                    }
                 }
             },
             _ => {

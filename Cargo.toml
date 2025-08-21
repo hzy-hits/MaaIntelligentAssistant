@@ -60,6 +60,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 async-trait = "0.1"
 futures = "0.3"
 tokio-util = "0.7"
+async-stream = "0.3"
 
 # 时间处理
 chrono = { version = "0.4", features = ["serde"] }

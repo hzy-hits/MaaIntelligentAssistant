@@ -5,7 +5,19 @@ import remarkGfm from 'remark-gfm'
 
 // 现代化的MAA聊天组件 - 基于 assistant-ui 设计风格
 const MAAChat = () => {
-  console.log('🎬 MAA聊天组件开始初始化')
+  // 组件初始化日志只在首次加载时显示
+  const initRef = useRef(false)
+  const messageIdRef = useRef(0) // 消息ID计数器，确保唯一性
+  if (!initRef.current) {
+    console.log('🎬 MAA聊天组件初始化 (React', React.version, ')')
+    initRef.current = true
+  }
+  
+  // 生成唯一消息ID
+  const generateMessageId = () => {
+    messageIdRef.current += 1
+    return `msg_${Date.now()}_${messageIdRef.current}`
+  }
   
   const [messages, setMessages] = useState([
     {
@@ -41,7 +53,7 @@ const MAAChat = () => {
         
         // 重置消息列表，使用后端返回的欢迎消息
         setMessages([{
-          id: Date.now(),
+          id: generateMessageId(),
           role: 'assistant',
           content: data.choices[0].message.content
         }])
@@ -55,12 +67,95 @@ const MAAChat = () => {
       
       // 即使后端重置失败，也清空前端消息列表
       setMessages([{
-        id: Date.now(),
+        id: generateMessageId(),
         role: 'assistant', 
         content: '对话已重置！我是MAA智能助手，可以帮您控制明日方舟自动化助手进行各种游戏操作。\n\n请问有什么可以为您效劳的吗？'
       }])
       
       console.log('⚠️ 使用默认消息重置对话')
+    }
+  }
+
+  // 处理SSE事件的统一函数 - 优化版本
+  const handleSSEEvent = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      
+      // 只为重要事件记录日志
+      if (['started', 'completed', 'failed', 'taskchain_started', 'taskchain_completed'].includes(event.type)) {
+        console.log(`📨 收到${event.type}事件: ${data.message}`)
+      }
+      
+      // 更新任务状态
+      if (data.task_id) {
+        setTaskUpdates(prev => ({
+          ...prev,
+          [data.task_id]: data
+        }))
+        
+        // 根据事件类型添加不同的消息通知
+        let notificationMessage = ''
+        let notificationIcon = ''
+        
+        switch (event.type) {
+          case 'started':
+            notificationIcon = '🚀'
+            notificationMessage = `任务启动：${data.message || data.task_type}`
+            break
+          case 'progress':
+            notificationIcon = '⏳'
+            notificationMessage = `任务进行中：${data.message}`
+            break
+          case 'completed':
+            notificationIcon = '✅'
+            notificationMessage = `任务完成：${data.message}`
+            break
+          case 'failed':
+            notificationIcon = '❌'
+            notificationMessage = `任务失败：${data.message}`
+            break
+          case 'taskchain_started':
+            notificationIcon = '🎬'
+            notificationMessage = `任务链开始：${data.message}`
+            break
+          case 'taskchain_completed':
+            notificationIcon = '🎉'
+            notificationMessage = `任务链完成：${data.message}`
+            break
+          case 'subtask_started':
+            notificationIcon = '🔧'
+            notificationMessage = `子任务开始：${data.message}`
+            break
+          case 'subtask_completed':
+            notificationIcon = '✅'
+            notificationMessage = `子任务完成：${data.message}`
+            break
+          default:
+            notificationIcon = '📨'
+            notificationMessage = `${event.type}: ${data.message || '收到更新'}`
+        }
+        
+        // 为重要事件添加聊天消息
+        if (['started', 'completed', 'failed', 'taskchain_started', 'taskchain_completed'].includes(event.type)) {
+          setMessages(prev => [...prev, {
+            id: generateMessageId(),
+            role: 'assistant',
+            content: `${notificationIcon} ${notificationMessage}`
+          }])
+        }
+      }
+    } catch (error) {
+      console.error(`❌ 解析${event.type}事件失败:`, error)
+    }
+  }
+
+  // 处理心跳事件 - 静默处理，不输出日志
+  const handleHeartbeat = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      // 心跳事件不需要记录日志，只需要保持连接活跃
+    } catch (error) {
+      console.error('❌ 解析心跳事件失败:', error)
     }
   }
 
@@ -75,51 +170,42 @@ const MAAChat = () => {
     const eventSource = new EventSource('http://localhost:8080/sse/tasks')
     sseRef.current = eventSource
 
+    // 连接打开事件
     eventSource.onopen = () => {
       console.log('✅ SSE连接已建立')
       setSseConnected(true)
     }
 
+    // 添加所有自定义事件类型的监听器
+    const eventTypes = [
+      'started', 'progress', 'completed', 'failed',
+      'taskchain_started', 'taskchain_completed', 'taskchain_failed',
+      'subtask_started', 'subtask_completed', 'subtask_failed', 'subtask_info',
+      'test', 'demo', 'frontend_test'  // 测试事件类型
+    ]
+    
+    eventTypes.forEach(eventType => {
+      eventSource.addEventListener(eventType, handleSSEEvent)
+    })
+    console.log(`🎯 已注册${eventTypes.length}个SSE事件监听器`)
+
+    // 心跳事件监听器
+    eventSource.addEventListener('heartbeat', handleHeartbeat)
+
+    // 默认消息处理器（处理没有指定类型的事件）
     eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        console.log('📨 收到SSE消息:', data)
-        
-        // 更新任务状态
-        if (data.task_id) {
-          setTaskUpdates(prev => ({
-            ...prev,
-            [data.task_id]: data
-          }))
-          
-          // 为重要事件添加消息通知
-          if (data.event_type === 'completed') {
-            setMessages(prev => [...prev, {
-              id: Date.now(),
-              role: 'assistant',
-              content: `✅ 任务完成通知：${data.message}`
-            }])
-          } else if (data.event_type === 'failed') {
-            setMessages(prev => [...prev, {
-              id: Date.now(),
-              role: 'assistant', 
-              content: `❌ 任务失败通知：${data.message}`
-            }])
-          } else if (data.event_type === 'started') {
-            setMessages(prev => [...prev, {
-              id: Date.now(),
-              role: 'assistant',
-              content: `🚀 任务启动：${data.message}`
-            }])
-          }
-        }
-      } catch (error) {
-        console.error('❌ 解析SSE消息失败:', error)
-      }
+      console.log('📨 收到默认消息事件')
+      handleSSEEvent({...event, type: 'message'})
     }
 
+    // 错误处理
     eventSource.onerror = (error) => {
       console.error('❌ SSE连接错误:', error)
+      console.error('❌ SSE错误详情:', {
+        readyState: eventSource.readyState,
+        url: eventSource.url,
+        withCredentials: eventSource.withCredentials
+      })
       setSseConnected(false)
       
       // 5秒后重试连接
@@ -132,31 +218,28 @@ const MAAChat = () => {
     }
   }
 
-  // 页面加载时重置对话和连接SSE
+  // 页面加载时重置对话和立即连接SSE
   useEffect(() => {
-    console.log('🚀 页面加载，重置对话历史')
+    console.log('🚀 初始化MAA聊天组件')
     handleReset()
-  }, []) // 只在组件挂载时执行一次
-
-  // 连接状态变化时管理SSE
-  useEffect(() => {
-    if (isConnected && !sseConnected) {
-      console.log('📡 MAA已连接，开始连接SSE')
-      connectSSE()
-    } else if (!isConnected && sseRef.current) {
-      console.log('🔌 MAA断开，关闭SSE连接')
-      sseRef.current.close()
-      setSseConnected(false)
-    }
     
-    // 清理函数
-    return () => {
-      if (sseRef.current) {
-        console.log('🧹 清理SSE连接')
-        sseRef.current.close()
-      }
+    // 立即连接SSE，不等待MAA连接状态
+    setIsConnected(true) // 设置为已连接，允许SSE连接
+    connectSSE()
+  }, [])
+
+  // 管理SSE连接状态 - 仅在需要时重连
+  useEffect(() => {
+    // 只有在明确需要重连时才执行
+    if (isConnected && !sseConnected && !sseRef.current) {
+      const timer = setTimeout(() => {
+        console.log('📡 重新建立SSE连接')
+        connectSSE()
+      }, 1000) // 延迟连接避免频繁重连
+      
+      return () => clearTimeout(timer)
     }
-  }, [isConnected])
+  }, [isConnected, sseConnected])
   
   // 组件卸载时清理SSE
   useEffect(() => {
@@ -164,81 +247,62 @@ const MAAChat = () => {
       if (sseRef.current) {
         console.log('🧹 组件卸载，关闭SSE连接')
         sseRef.current.close()
+        sseRef.current = null
       }
     }
   }, [])
 
-  // 检查MAA连接
+  // 检查MAA连接 - 优化版本，减少日志输出
   useEffect(() => {
+    let intervalRef = null
+    
     const checkConnection = async () => {
-      console.log('🔍 开始检查MAA后端连接...')
-      console.log('🌐 尝试连接:', 'http://localhost:8080/health')
-      
       try {
-        console.log('📡 发送请求到后端...')
         const response = await fetch('http://localhost:8080/health')
-        
-        console.log('📦 收到响应:', {
-          status: response.status,
-          ok: response.ok,
-          statusText: response.statusText,
-          url: response.url
-        })
         
         if (response.ok) {
           const data = await response.json()
-          console.log('✅ 后端响应数据:', data)
           
           // 检查MAA是否已经准备就绪
           const maaReady = data.status === 'ready' && 
                           data.maa_core && 
                           data.maa_core.connected === true
           
-          if (maaReady) {
+          if (maaReady && !isConnected) {
             console.log('🎉 MAA设备连接成功!')
             setIsConnected(true)
             updateStatus('connected')
-          } else if (data.status === 'initializing') {
+          } else if (data.status === 'initializing' && isConnected) {
             console.log('🔄 MAA正在初始化设备连接...')
             setIsConnected(false)
             updateStatus('loading')
-          } else {
-            console.log('⚠️ MAA设备未连接:', data.maa_core)
+          } else if (!maaReady && isConnected) {
+            console.log('⚠️ MAA设备连接中断')
             setIsConnected(false)
             updateStatus('disconnected')
           }
-        } else {
-          console.log('❌ 后端响应错误:', response.status, response.statusText)
+        } else if (isConnected) {
+          console.log('❌ 后端响应错误:', response.status)
           setIsConnected(false)
           updateStatus('disconnected')
         }
       } catch (error) {
-        console.error('🚨 连接失败错误详情:', {
-          name: error.name,
-          message: error.message,
-          stack: error.stack
-        })
-        console.log('🔧 可能的原因:')
-        console.log('  1. 后端服务器未启动 (检查 http://localhost:8080)')
-        console.log('  2. 网络连接问题')
-        console.log('  3. 浏览器CORS限制')
-        console.log('  4. 防火墙阻止连接')
-        
-        setIsConnected(false)
-        updateStatus('disconnected')
+        if (isConnected) {
+          console.error('🚨 连接检查失败:', error.message)
+          setIsConnected(false)
+          updateStatus('disconnected')
+        }
       }
     }
 
-    console.log('🚀 初始化MAA连接检查')
+    console.log('🚀 开始MAA服务器状态监控')
     checkConnection()
-    const interval = setInterval(() => {
-      console.log('⏰ 定期检查连接 (每5秒)')
-      checkConnection()
-    }, 5000)
+    intervalRef = setInterval(checkConnection, 10000) // 增加间隔到10秒
     
     return () => {
-      console.log('🛑 清理连接检查定时器')
-      clearInterval(interval)
+      if (intervalRef) {
+        clearInterval(intervalRef)
+      }
     }
   }, [])
 
@@ -385,7 +449,7 @@ const MAAChat = () => {
 
     // 添加用户消息
     const newMessages = [...messages, {
-      id: Date.now(),
+      id: generateMessageId(),
       role: 'user',
       content: userMessage
     }]
@@ -409,7 +473,7 @@ const MAAChat = () => {
           
           // 显示正在执行
           setMessages(prev => [...prev, {
-            id: Date.now() + 1,
+            id: generateMessageId(),
             role: 'assistant',
             content: `🔧 正在执行 ${functionName}\n\n\`\`\`json\n${JSON.stringify(args, null, 2)}\n\`\`\``
           }])
@@ -446,7 +510,7 @@ const MAAChat = () => {
                   const screenshotUrl = `data:image/png;base64,${base64Data}`;
                   
                   setMessages(prev => [...prev, {
-                    id: Date.now() + 2,
+                    id: generateMessageId(),
                     role: 'assistant',
                     type: 'screenshot_display',
                     content: {
@@ -469,7 +533,7 @@ const MAAChat = () => {
           // 只有非截图结果才显示普通的结果文本
           if (resultText) {
             setMessages(prev => [...prev, {
-              id: Date.now() + 2,
+              id: generateMessageId(),
               role: 'assistant',
               content: resultText
             }])
@@ -478,7 +542,7 @@ const MAAChat = () => {
           // AI的额外回复
           if (choice.message.content) {
             setMessages(prev => [...prev, {
-              id: Date.now() + 3,
+              id: generateMessageId(),
               role: 'assistant',
               content: choice.message.content
             }])
@@ -486,14 +550,14 @@ const MAAChat = () => {
         } else {
           // 直接回复
           setMessages(prev => [...prev, {
-            id: Date.now() + 1,
+            id: generateMessageId(),
             role: 'assistant',
             content: choice.message.content || '我理解了您的需求，但暂时无法执行相关操作。如果您需要执行MAA操作，请尝试更具体的指令。'
           }])
         }
       } else {
         setMessages(prev => [...prev, {
-          id: Date.now() + 1,
+          id: generateMessageId(),
           role: 'assistant',
           content: '抱歉，我没有理解您的意思。您可以尝试说：\n• "帮我截个图"\n• "获取MAA状态"\n• "查看我的干员"'
         }])
@@ -501,7 +565,7 @@ const MAAChat = () => {
     } catch (error) {
       console.error('处理消息失败:', error)
       setMessages(prev => [...prev, {
-        id: Date.now() + 1,
+        id: generateMessageId(),
         role: 'assistant',
         content: `❌ 抱歉，处理您的请求时出现错误：${error.message}`
       }])
@@ -574,7 +638,7 @@ const MAAChat = () => {
         }
         
         setMessages(prev => [...prev, {
-          id: Date.now(),
+          id: generateMessageId(),
           role: 'assistant',
           type: 'screenshot_display',
           content: {
@@ -596,7 +660,7 @@ const MAAChat = () => {
     } catch (error) {
       console.error('❌ 截图失败:', error)
       setMessages(prev => [...prev, {
-        id: Date.now(),
+        id: generateMessageId(),
         role: 'assistant',
         content: `❌ 截图失败：${error.message}`
       }])
@@ -1130,8 +1194,9 @@ const MAAChat = () => {
 // 渲染应用
 const container = document.getElementById('chat-root')
 if (container) {
+  console.log('🌟 渲染MAA聊天应用')
   const root = createRoot(container)
   root.render(<MAAChat />)
 } else {
-  console.error('找不到 chat-root 元素')
+  console.error('❌ 找不到 chat-root 元素')
 }

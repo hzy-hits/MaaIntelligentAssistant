@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE连接测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .log { background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .event { background: #e7f5e7; padding: 8px; margin: 5px 0; border-left: 3px solid #4CAF50; }
+        .error { background: #ffe7e7; padding: 8px; margin: 5px 0; border-left: 3px solid #f44336; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>MAA SSE连接测试</h1>
+    
+    <div>
+        <button onclick="connectSSE()">连接SSE</button>
+        <button onclick="disconnectSSE()">断开SSE</button>
+        <button onclick="sendTestEvent()">发送测试事件</button>
+        <button onclick="clearLog()">清除日志</button>
+    </div>
+    
+    <div id="status">状态: 未连接</div>
+    <div id="log"></div>
+
+    <script>
+        let eventSource = null;
+        
+        function log(message, type = 'log') {
+            const logDiv = document.getElementById('log');
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(div);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function updateStatus(status) {
+            document.getElementById('status').textContent = `状态: ${status}`;
+        }
+        
+        function connectSSE() {
+            if (eventSource) {
+                log('关闭现有SSE连接');
+                eventSource.close();
+            }
+            
+            log('🔗 正在连接SSE: http://localhost:8080/sse/tasks');
+            eventSource = new EventSource('http://localhost:8080/sse/tasks');
+            
+            eventSource.onopen = () => {
+                log('✅ SSE连接已建立', 'event');
+                updateStatus('已连接');
+            };
+            
+            eventSource.onmessage = (event) => {
+                log(`📨 收到默认消息: ${event.data}`, 'event');
+            };
+            
+            eventSource.onerror = (error) => {
+                log(`❌ SSE连接错误: ${JSON.stringify(error)}`, 'error');
+                log(`❌ ReadyState: ${eventSource.readyState}`, 'error');
+                updateStatus('连接错误');
+            };
+            
+            // 注册自定义事件监听器
+            const eventTypes = ['started', 'completed', 'failed', 'taskchain_started', 'taskchain_completed', 'heartbeat'];
+            eventTypes.forEach(eventType => {
+                eventSource.addEventListener(eventType, (event) => {
+                    log(`🎯 收到${eventType}事件: ${event.data}`, 'event');
+                });
+                log(`🎯 已注册${eventType}事件监听器`);
+            });
+        }
+        
+        function disconnectSSE() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                log('🔌 SSE连接已断开');
+                updateStatus('已断开');
+            }
+        }
+        
+        function sendTestEvent() {
+            log('📤 发送测试事件到后端');
+            fetch('http://localhost:8080/sse/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: '🧪 SSE测试事件 - 这是来自测试页面的消息',
+                    event_type: 'started'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                log(`✅ 测试事件发送成功: ${JSON.stringify(data)}`);
+            })
+            .catch(error => {
+                log(`❌ 发送测试事件失败: ${error}`, 'error');
+            });
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // 页面加载时自动连接
+        window.onload = () => {
+            log('🌟 页面加载完成，自动连接SSE');
+            connectSSE();
+        };
+    </script>
+</body>
+</html>

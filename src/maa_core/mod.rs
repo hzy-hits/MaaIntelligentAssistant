@@ -11,20 +11,23 @@ use std::collections::HashMap;
 use tracing::{info, debug, warn};
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
-use serde_json;
+use serde_json::{self, Value};
 use anyhow::{Result, anyhow};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, broadcast};
 use once_cell::sync::Lazy;
 use crate::config::CONFIG;
+use crate::maa_core::worker_v2::TaskProgressEvent;
 
 // 导出子模块
 pub mod basic_ops;
-pub mod task_queue;
-pub mod worker;
 pub mod task_status;
 pub mod screenshot;
-pub mod task_classification;
 pub mod task_notification;
+
+// V2 优化模块 - 简化架构
+pub mod task_classification_v2;
+pub mod task_queue_v2;
+pub mod worker_v2;
 
 /// 全局任务完成通知器
 /// task_id -> oneshot sender
@@ -56,6 +59,17 @@ pub use basic_ops::{
     execute_reclamation, execute_closedown, execute_custom_task,
     execute_video_recognition, execute_system_management
 };
+
+/// 全局SSE事件广播器，用于MAA回调到Worker V2的通信
+static mut GLOBAL_SSE_BROADCASTER: Option<broadcast::Sender<TaskProgressEvent>> = None;
+
+/// 设置全局SSE广播器（由Worker V2调用）
+pub fn set_global_sse_broadcaster(broadcaster: broadcast::Sender<TaskProgressEvent>) {
+    unsafe {
+        GLOBAL_SSE_BROADCASTER = Some(broadcaster);
+    }
+    info!("已设置全局SSE广播器用于MAA回调转发");
+}
 
 /// MAA 回调函数 - 处理任务完成事件 (遵循官方协议)
 unsafe extern "C" fn maa_callback(
@@ -114,11 +128,26 @@ unsafe extern "C" fn maa_callback(
                 }
             }
         },
-        3 => {
-            info!("全部任务完成");
+        3 => { // AllTasksCompleted
+            info!("全部任务完成: {}", details_str);
+            
+            // 提取任务链信息
+            let taskchain = details_json.get("taskchain")
+                .and_then(|tc| tc.as_str())
+                .unwrap_or("unknown");
+            let finished_tasks = details_json.get("finished_tasks")
+                .and_then(|ft| ft.as_array())
+                .map(|arr| arr.len())
+                .unwrap_or(0);
+                
+            // SSE通知
+            forward_to_sse_global("all_tasks_completed", 
+                                 format!("任务链 {} 全部完成，共执行{}个任务", taskchain, finished_tasks), 
+                                 details_json.clone());
+            
             // 通知所有已完成的任务
-            if let Some(finished_tasks) = details_json.get("finished_tasks").and_then(|v| v.as_array()) {
-                for task in finished_tasks {
+            if let Some(finished_tasks_array) = details_json.get("finished_tasks").and_then(|v| v.as_array()) {
+                for task in finished_tasks_array {
                     if let Some(task_id) = task.as_i64() {
                         notify_task_completion(task_id as i32, details_json.clone());
                     }
@@ -129,8 +158,11 @@ unsafe extern "C" fn maa_callback(
             // AsyncCallInfo - 异步调用信息
             debug!("异步调用信息: {}", details_str);
         },
-        5 => {
-            info!("MAA实例已销毁");
+        5 => { // Destroyed
+            warn!("MAA实例已销毁: {}", details_str);
+            forward_to_sse_global("maa_destroyed", 
+                                 "MAA实例已销毁，需要重新初始化".to_string(), 
+                                 details_json.clone());
         },
         
         // TaskChain Info
@@ -138,14 +170,22 @@ unsafe extern "C" fn maa_callback(
             warn!("任务链错误: {}", details_str);
             // 更新任务状态
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
-                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+                let task_id = task_id as i32;
+                task_status::handle_maa_callback(task_id, msg, details_json.clone());
+                
+                // 转发到SSE系统
+                forward_to_sse(task_id, msg, details_json.clone());
             }
         },
         10001 => {
             info!("任务链开始: {}", details_str);
             // 更新任务状态
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
-                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+                let task_id = task_id as i32;
+                task_status::handle_maa_callback(task_id, msg, details_json.clone());
+                
+                // 转发到SSE系统
+                forward_to_sse(task_id, msg, details_json.clone());
             }
         },
         10002 => {
@@ -167,31 +207,51 @@ unsafe extern "C" fn maa_callback(
         20000 => {
             warn!("子任务错误: {}", details_str);
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
-                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+                let task_id = task_id as i32;
+                task_status::handle_maa_callback(task_id, msg, details_json.clone());
+                
+                // 转发到SSE系统
+                forward_to_sse(task_id, msg, details_json.clone());
             }
         },
         20001 => {
             debug!("子任务开始: {}", details_str);
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
-                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+                let task_id = task_id as i32;
+                task_status::handle_maa_callback(task_id, msg, details_json.clone());
+                
+                // 转发到SSE系统
+                forward_to_sse(task_id, msg, details_json.clone());
             }
         },
         20002 => {
             debug!("子任务完成: {}", details_str);
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
-                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+                let task_id = task_id as i32;
+                task_status::handle_maa_callback(task_id, msg, details_json.clone());
+                
+                // 转发到SSE系统
+                forward_to_sse(task_id, msg, details_json.clone());
             }
         },
         20003 => {
             debug!("子任务额外信息: {}", details_str);
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
-                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+                let task_id = task_id as i32;
+                task_status::handle_maa_callback(task_id, msg, details_json.clone());
+                
+                // 转发到SSE系统
+                forward_to_sse(task_id, msg, details_json.clone());
             }
         },
         20004 => {
             debug!("子任务手动停止: {}", details_str);
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
-                task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
+                let task_id = task_id as i32;
+                task_status::handle_maa_callback(task_id, msg, details_json.clone());
+                
+                // 转发到SSE系统
+                forward_to_sse(task_id, msg, details_json.clone());
             }
         },
         
@@ -201,15 +261,206 @@ unsafe extern "C" fn maa_callback(
     }
 }
 
-// 移除了 thread_local 实现
-// 现在所有 MAA 操作都通过任务队列路由到专用的工作线程
+/// 将MAA回调事件转发到SSE系统
+fn forward_to_sse(task_id: i32, msg_code: i32, details: Value) {
+    unsafe {
+        if let Some(ref broadcaster) = GLOBAL_SSE_BROADCASTER {
+            let event_type = match msg_code {
+                10001 => "taskchain_started",
+                10002 => "taskchain_completed",
+                10000 => "taskchain_failed", 
+                20001 => "subtask_started",
+                20002 => "subtask_completed",
+                20003 => "subtask_info",
+                20000 => "subtask_failed",
+                _ => "unknown"
+            };
+            
+            let task_name = details.get("details")
+                .and_then(|d| d.get("task"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("unknown");
+                
+            let task_chain = details.get("taskchain")
+                .and_then(|tc| tc.as_str())
+                .unwrap_or("unknown");
+                
+            // 根据MAA Core官方协议生成用户友好的消息
+            let message = match msg_code {
+                10001 => {
+                    let task_desc = get_taskchain_description(task_chain);
+                    format!("{} 开始执行", task_desc)
+                },
+                10002 => {
+                    let task_desc = get_taskchain_description(task_chain);
+                    format!("{} 执行完成", task_desc)
+                },
+                10000 => {
+                    let task_desc = get_taskchain_description(task_chain);
+                    format!("{} 执行失败", task_desc)
+                },
+                20001 => {
+                    let task_desc = get_subtask_description(task_name);
+                    format!("开始: {}", task_desc)
+                },
+                20002 => {
+                    let task_desc = get_subtask_description(task_name);
+                    format!("完成: {}", task_desc)
+                },
+                20003 => {
+                    // 子任务额外信息，包括掉落、设施信息等
+                    if let Some(facility) = details.get("details").and_then(|d| d.get("facility")).and_then(|f| f.as_str()) {
+                        format!("处理基建设施: {}", get_facility_name(facility))
+                    } else if let Some(what) = details.get("what").and_then(|w| w.as_str()) {
+                        match what {
+                            "StageDrops" => "获得关卡掉落奖励".to_string(),
+                            "RecruitTagsDetected" => "检测到公招标签".to_string(),
+                            "RecruitSpecialTag" => "发现特殊公招标签".to_string(),
+                            "ProductOfFacility" => "收集基建产物".to_string(),
+                            _ => format!("{} 信息更新", get_subtask_description(task_name))
+                        }
+                    } else {
+                        format!("{} 进度更新", get_subtask_description(task_name))
+                    }
+                },
+                20000 => {
+                    let task_desc = get_subtask_description(task_name);
+                    format!("失败: {}", task_desc)
+                },
+                20004 => {
+                    let task_desc = get_subtask_description(task_name);
+                    format!("停止: {}", task_desc)
+                },
+                _ => format!("未知事件: {}", task_name)
+            };
+            
+            let sse_event = TaskProgressEvent {
+                task_id,
+                task_type: task_chain.to_string(),
+                event_type: event_type.to_string(),
+                message,
+                data: Some(details),
+                timestamp: Utc::now(),
+            };
+            
+            // 发送SSE事件（忽略发送失败，避免阻塞）
+            let _ = broadcaster.send(sse_event);
+            
+            debug!("MAA回调事件已转发到SSE: task_id={}, event_type={}, msg_code={}", task_id, event_type, msg_code);
+        } else {
+            debug!("SSE广播器未设置，跳过MAA回调转发");
+        }
+    }
+}
 
-// 重新导出任务队列相关类型
-pub use task_queue::{MaaTask, MaaTaskSender, MaaTaskReceiver, create_maa_task_channel};
-pub use worker::MaaWorker;
+/// 转发全局事件到SSE系统
+fn forward_to_sse_global(event_type: &str, message: String, details: Value) {
+    unsafe {
+        if let Some(ref broadcaster) = GLOBAL_SSE_BROADCASTER {
+            let sse_event = TaskProgressEvent {
+                task_id: 0, // 全局事件使用task_id=0
+                task_type: "system".to_string(),
+                event_type: event_type.to_string(),
+                message,
+                data: Some(details),
+                timestamp: Utc::now(),
+            };
+            
+            let _ = broadcaster.send(sse_event);
+            debug!("全局事件已转发到SSE: event_type={}", event_type);
+        } else {
+            debug!("SSE广播器未设置，跳过全局事件转发");
+        }
+    }
+}
+
+/// 获取任务链的中文描述
+fn get_taskchain_description(taskchain: &str) -> String {
+    match taskchain {
+        "StartUp" => "游戏启动".to_string(),
+        "CloseDown" => "游戏关闭".to_string(),
+        "Fight" => "自动战斗".to_string(),
+        "Mall" => "信用商店".to_string(),
+        "Recruit" => "公开招募".to_string(),
+        "Infrast" => "基建管理".to_string(),
+        "Award" => "奖励收集".to_string(),
+        "Roguelike" => "集成战略(肉鸽)".to_string(),
+        "Copilot" => "作业执行".to_string(),
+        "SSSCopilot" => "保全派驻".to_string(),
+        "Depot" => "仓库识别".to_string(),
+        "OperBox" => "干员箱识别".to_string(),
+        "Reclamation" => "生息演算".to_string(),
+        "Custom" => "自定义任务".to_string(),
+        "SingleStep" => "单步任务".to_string(),
+        "VideoRecognition" => "视频识别".to_string(),
+        "Debug" => "调试模式".to_string(),
+        _ => format!("任务: {}", taskchain)
+    }
+}
+
+/// 获取子任务的中文描述
+fn get_subtask_description(subtask: &str) -> String {
+    match subtask {
+        // 战斗相关
+        "StartButton2" => "开始战斗".to_string(),
+        "MedicineConfirm" => "使用理智药".to_string(),
+        "ExpiringMedicineConfirm" => "使用过期理智药".to_string(),
+        "StoneConfirm" => "使用源石补充理智".to_string(),
+        
+        // 公招相关
+        "RecruitRefreshConfirm" => "公招刷新标签".to_string(),
+        "RecruitConfirm" => "确认公招".to_string(),
+        "RecruitNowConfirm" => "使用加急许可证".to_string(),
+        
+        // 基建相关
+        "InfrastDormDoubleConfirmButton" => "宿舍干员冲突确认".to_string(),
+        "InfrastEnteredFlag" => "进入基建界面".to_string(),
+        "InfrastEnterOperList" => "进入干员列表".to_string(),
+        "ReturnButton" => "返回上级菜单".to_string(),
+        "SwipeToTheLeft" => "向左滑动切换".to_string(),
+        
+        // 肉鸽相关
+        "StartExplore" => "开始肉鸽探索".to_string(),
+        "StageTraderInvestConfirm" => "投资源石锭".to_string(),
+        "MissionCompletedFlag" => "战斗胜利".to_string(),
+        "MissionFailedFlag" => "战斗失败".to_string(),
+        "ExitThenAbandon" => "放弃探索".to_string(),
+        
+        // 其他
+        "StartGameTask" => "启动游戏客户端".to_string(),
+        "ReportToPenguinStats" => "上报企鹅数据".to_string(),
+        "ReportToYituliu" => "上报一图流数据".to_string(),
+        
+        _ => subtask.to_string()
+    }
+}
+
+/// 获取基建设施的中文名称
+fn get_facility_name(facility: &str) -> String {
+    match facility {
+        "Mfg" => "制造站".to_string(),
+        "Trade" => "贸易站".to_string(),
+        "Power" => "发电站".to_string(),
+        "Control" => "控制中枢".to_string(),
+        "Reception" => "会客室".to_string(),
+        "Office" => "办公室".to_string(),
+        "Dorm" => "宿舍".to_string(),
+        _ => facility.to_string()
+    }
+}
+
+// V2架构：简化的任务队列系统
+// 所有 MAA 操作都通过V2优化任务队列路由到专用的工作线程
+
+// V2组件导出
+pub use task_queue_v2::{
+    MaaTask as MaaTaskV2, MaaTaskSender as MaaTaskSenderV2, MaaTaskReceiver as MaaTaskReceiverV2, 
+    create_maa_task_channel_v2, TaskResult, TaskStatus as TaskStatusV2
+};
+pub use worker_v2::MaaWorkerV2;
 pub use task_status::{MaaTaskStatus, TaskStatus, get_task_status, get_all_tasks, get_running_tasks, cleanup_old_tasks};
 pub use screenshot::{ScreenshotInfo, save_maa_screenshot, get_screenshot_by_id, list_all_screenshots, cleanup_screenshots};
-pub use task_classification::{TaskExecutionMode, get_task_execution_mode, estimate_task_duration};
+pub use task_classification_v2::{TaskExecutionMode, get_task_execution_mode, estimate_task_duration, is_synchronous_task};
 pub use task_notification::{
     TaskStatusEvent, TaskStatus as NotificationTaskStatus, init_task_notification_system, 
     subscribe_task_events, notify_task_status, notify_task_started, notify_task_progress, 
