@@ -79,8 +79,8 @@ tokio-test = "0.4"
 tempfile = "3.8"
 
 [[bin]]
-name = "maa-intelligent-server"
-path = "src/bin/maa-intelligent-server.rs"
+name = "maa-optimized-server"
+path = "src/bin/maa-optimized-server.rs"
 
 [lib]
 name = "maa_intelligent_server"
