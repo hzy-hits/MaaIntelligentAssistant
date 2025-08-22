@@ -53,11 +53,8 @@ pub fn notify_task_completion(task_id: i32, result: serde_json::Value) {
 // 重新导出基础操作
 pub use basic_ops::{
     connect_device, execute_fight, get_maa_status, take_screenshot, perform_click,
-    smart_fight, execute_recruit, execute_infrastructure, execute_roguelike,
-    execute_copilot, execute_startup, execute_awards, execute_credit_store,
-    execute_depot_management, execute_operator_box, execute_sss_copilot,
-    execute_reclamation, execute_closedown, execute_custom_task,
-    execute_video_recognition, execute_system_management
+    stop_all_tasks, execute_recruit, execute_infrastructure, execute_startup,
+    get_tasks_list, set_task_params, back_to_home, adjust_task_strategy
 };
 
 /// 全局SSE事件广播器，用于MAA回调到Worker V2的通信
