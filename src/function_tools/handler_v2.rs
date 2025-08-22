@@ -55,12 +55,15 @@ impl EnhancedMaaFunctionHandlerV2 {
         definitions.push(create_depot_management_definition());
         definitions.push(create_operator_box_definition());
 
-        // 系统功能 (5个)
+        // 系统功能 (8个)
         definitions.push(create_closedown_definition());
         definitions.push(create_custom_task_definition());
         definitions.push(create_video_recognition_definition());
         definitions.push(create_system_management_definition());
         definitions.push(create_screenshot_definition());
+        definitions.push(create_get_task_list_definition());
+        definitions.push(create_adjust_task_params_definition());
+        definitions.push(create_emergency_home_definition());
 
         info!("已加载 {} 个增强MAA Function Calling工具", definitions.len());
         definitions
@@ -221,7 +224,7 @@ impl EnhancedMaaFunctionHandlerV2 {
             "maa_roguelike_enhanced", "maa_copilot_enhanced", "maa_sss_copilot", "maa_reclamation",
             "maa_rewards_enhanced", "maa_credit_store_enhanced", "maa_depot_management", "maa_operator_box",
             "maa_closedown", "maa_custom_task", "maa_video_recognition", "maa_system_management",
-            "maa_take_screenshot"
+            "maa_take_screenshot", "maa_get_task_list", "maa_adjust_task_params", "maa_emergency_home"
         ];
         
         if !supported_functions.contains(&function_call.name.as_str()) {
@@ -253,12 +256,12 @@ impl EnhancedMaaFunctionHandlerV2 {
         
         json!({
             "server_type": "enhanced_function_calling_v2",
-            "total_functions": 16,
+            "total_functions": 20,
             "function_categories": {
                 "core_game": 4,
                 "advanced_automation": 4,
                 "support_features": 4,
-                "system_features": 4
+                "system_features": 8
             },
             "architecture": "optimized_v2_single_queue",
             "maa_core": maa_status,

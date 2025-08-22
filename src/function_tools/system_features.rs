@@ -1,11 +1,14 @@
 //! 系统功能模块 - V2简化版本
 //!
-//! 包含5个系统MAA功能定义：
+//! 包含8个系统MAA功能定义：
 //! - maa_closedown: 关闭游戏
 //! - maa_custom_task: 自定义任务 
 //! - maa_video_recognition: 视频识别
 //! - maa_system_management: 系统管理
 //! - maa_take_screenshot: 截图功能
+//! - maa_get_task_list: 获取任务列表
+//! - maa_adjust_task_params: 动态调整任务参数
+//! - maa_emergency_home: 紧急返回主界面
 
 use serde_json::json;
 use super::types::FunctionDefinition;
@@ -124,6 +127,116 @@ pub fn create_screenshot_definition() -> FunctionDefinition {
                     "default": 90,
                     "minimum": 1,
                     "maximum": 100
+                }
+            },
+            "required": []
+        }),
+    }
+}
+
+/// 创建获取任务列表工具定义
+pub fn create_get_task_list_definition() -> FunctionDefinition {
+    FunctionDefinition {
+        name: "maa_get_task_list".to_string(),
+        description: "获取当前MAA运行中的任务列表和状态信息".to_string(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "refresh": {
+                    "type": "boolean",
+                    "description": "是否强制刷新任务列表",
+                    "default": false
+                },
+                "include_completed": {
+                    "type": "boolean",
+                    "description": "是否包含已完成的任务",
+                    "default": false
+                }
+            },
+            "required": []
+        }),
+    }
+}
+
+/// 创建动态调整任务参数工具定义
+pub fn create_adjust_task_params_definition() -> FunctionDefinition {
+    FunctionDefinition {
+        name: "maa_adjust_task_params".to_string(),
+        description: "动态调整运行中任务的参数，支持智能策略".to_string(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "要调整的任务ID"
+                },
+                "strategy": {
+                    "type": "string",
+                    "description": "调整策略: reduce_difficulty(降低难度), increase_efficiency(提高效率), emergency_stop(紧急停止)",
+                    "enum": ["reduce_difficulty", "increase_efficiency", "emergency_stop", "custom"]
+                },
+                "custom_params": {
+                    "type": "object",
+                    "description": "自定义参数(当strategy=custom时使用)",
+                    "properties": {
+                        "medicine": {
+                            "type": "integer",
+                            "description": "理智药数量",
+                            "minimum": 0
+                        },
+                        "times": {
+                            "type": "integer", 
+                            "description": "执行次数",
+                            "minimum": 0
+                        },
+                        "enable": {
+                            "type": "boolean",
+                            "description": "是否启用任务"
+                        }
+                    }
+                },
+                "context": {
+                    "type": "object",
+                    "description": "调整上下文信息",
+                    "properties": {
+                        "available_medicine": {
+                            "type": "integer",
+                            "description": "可用理智药数量"
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "调整原因"
+                        }
+                    }
+                }
+            },
+            "required": ["task_id", "strategy"]
+        }),
+    }
+}
+
+/// 创建紧急返回主界面工具定义
+pub fn create_emergency_home_definition() -> FunctionDefinition {
+    FunctionDefinition {
+        name: "maa_emergency_home".to_string(),
+        description: "紧急情况下快速返回游戏主界面，中断当前所有操作".to_string(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "紧急返回的原因",
+                    "default": "user_request"
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "是否强制返回(跳过安全检查)",
+                    "default": false
+                },
+                "stop_tasks": {
+                    "type": "boolean",
+                    "description": "是否同时停止所有运行中的任务",
+                    "default": true
                 }
             },
             "required": []

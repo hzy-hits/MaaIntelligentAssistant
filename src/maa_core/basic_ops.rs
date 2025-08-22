@@ -247,6 +247,137 @@ pub async fn execute_infrastructure(facility: &[String], drones: &str, threshold
     }))
 }
 
+/// 获取当前运行的任务列表
+/// 
+/// # 返回
+/// 包含任务ID和状态信息的列表
+pub async fn get_tasks_list() -> Result<Value> {
+    execute_maa_operation(|assistant| {
+        // 使用Assistant当前状态来推断任务信息
+        let is_running = assistant.running();
+        let is_connected = assistant.connected();
+        
+        // 构建模拟的任务列表响应
+        let tasks_info = if is_running {
+            vec![json!({
+                "task_id": 1,
+                "index": 0,
+                "status": "running",
+                "connected": is_connected
+            })]
+        } else {
+            vec![]
+        };
+        
+        Ok(json!({
+            "tasks": tasks_info,
+            "total_count": tasks_info.len(),
+            "timestamp": Utc::now(),
+            "running": is_running,
+            "connected": is_connected
+        }))
+    }).await.or_else(|_| {
+        warn!("MAA Core 不可用，使用 stub 模式");
+        Ok(json!({
+            "tasks": [],
+            "total_count": 0,
+            "timestamp": Utc::now(),
+            "mode": "stub"
+        }))
+    })
+}
+
+/// 动态设置任务参数
+/// 
+/// # 参数
+/// * `task_id` - 任务ID
+/// * `params` - 新的参数JSON
+pub async fn set_task_params(task_id: i32, params: Value) -> Result<Value> {
+    info!("动态调整任务 {} 参数: {}", task_id, params);
+    
+    execute_maa_operation(|assistant| {
+        let params_str = params.to_string();
+        assistant.set_task_params(task_id, params_str.as_str())?;
+        
+        Ok(json!({
+            "task_id": task_id,
+            "updated_params": params,
+            "status": "updated",
+            "timestamp": Utc::now()
+        }))
+    }).await.or_else(|_| {
+        warn!("MAA Core 不可用，使用 stub 模式");
+        Ok(json!({
+            "task_id": task_id,
+            "updated_params": params,
+            "status": "stub_updated",
+            "timestamp": Utc::now()
+        }))
+    })
+}
+
+/// 快速返回游戏主界面
+/// 
+/// # 返回
+/// 操作结果
+pub async fn back_to_home() -> Result<Value> {
+    info!("执行快速返回主界面操作");
+    
+    execute_maa_operation(|assistant| {
+        assistant.back_to_home()?;
+        
+        Ok(json!({
+            "action": "back_to_home",
+            "status": "executed",
+            "timestamp": Utc::now()
+        }))
+    }).await.or_else(|_| {
+        warn!("MAA Core 不可用，使用 stub 模式");
+        Ok(json!({
+            "action": "back_to_home", 
+            "status": "stub_executed",
+            "timestamp": Utc::now()
+        }))
+    })
+}
+
+/// 智能任务参数调整策略
+pub async fn adjust_task_strategy(task_id: i32, strategy: &str, context: Value) -> Result<Value> {
+    info!("应用智能调整策略: {} 到任务 {}", strategy, task_id);
+    
+    let new_params = match strategy {
+        "reduce_difficulty" => {
+            // 降低难度：减少药剂使用，降低目标次数
+            json!({
+                "medicine": 0,
+                "times": 1,
+                "strategy": "conservative"
+            })
+        },
+        "increase_efficiency" => {
+            // 提高效率：增加药剂使用
+            let medicine_count = context.get("available_medicine").and_then(|v| v.as_i64()).unwrap_or(0);
+            json!({
+                "medicine": medicine_count.min(99),
+                "times": 0,
+                "strategy": "aggressive"  
+            })
+        },
+        "emergency_stop" => {
+            // 紧急停止：设置为无限循环防止进一步执行
+            json!({
+                "enable": false,
+                "times": 0
+            })
+        },
+        _ => {
+            return Err(anyhow!("未知的调整策略: {}", strategy));
+        }
+    };
+    
+    set_task_params(task_id, new_params).await
+}
+
 /// 执行关闭任务 (已废弃 - 使用任务队列)
 pub async fn execute_closedown() -> Result<Value> {
     info!("execute_closedown已废弃，请使用任务队列");

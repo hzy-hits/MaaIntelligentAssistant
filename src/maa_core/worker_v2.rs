@@ -610,6 +610,59 @@ impl MaaWorkerV2 {
                     }
                 }
             },
+            "maa_get_task_list" => {
+                debug!("获取任务列表");
+                use crate::maa_core::basic_ops::get_tasks_list;
+                match get_tasks_list().await {
+                    Ok(tasks_data) => Ok(tasks_data),
+                    Err(e) => Err(anyhow!("获取任务列表失败: {}", e))
+                }
+            },
+            "maa_adjust_task_params" => {
+                debug!("动态调整任务参数");
+                use crate::maa_core::basic_ops::{set_task_params, adjust_task_strategy};
+                
+                let task_id = task.parameters.get("task_id")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(1) as i32;
+                let strategy = task.parameters.get("strategy")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("reduce_difficulty");
+                    
+                if strategy == "custom" {
+                    // 自定义参数调整
+                    let custom_params = task.parameters.get("custom_params")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    match set_task_params(task_id, custom_params).await {
+                        Ok(result) => Ok(result),
+                        Err(e) => Err(anyhow!("自定义参数调整失败: {}", e))
+                    }
+                } else {
+                    // 智能策略调整
+                    let context = task.parameters.get("context")
+                        .cloned()
+                        .unwrap_or_else(|| json!({}));
+                    match adjust_task_strategy(task_id, strategy, context).await {
+                        Ok(result) => Ok(result),
+                        Err(e) => Err(anyhow!("智能策略调整失败: {}", e))
+                    }
+                }
+            },
+            "maa_emergency_home" => {
+                debug!("紧急返回主界面");
+                use crate::maa_core::basic_ops::back_to_home;
+                
+                let reason = task.parameters.get("reason")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("user_request");
+                
+                info!("紧急返回主界面，原因: {}", reason);
+                match back_to_home().await {
+                    Ok(result) => Ok(result),
+                    Err(e) => Err(anyhow!("紧急返回失败: {}", e))
+                }
+            },
             _ => {
                 // 通用任务处理 - 优化：直接传递参数，避免重复序列化
                 debug!("执行通用任务: {}", task.task_type);
