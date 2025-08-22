@@ -53,7 +53,7 @@ impl SseManager {
         
         let task_event_stream = async_stream::stream! {
             while let Ok(task_event) = event_rx.recv().await {
-                info!("📨 SSE接收到任务事件: task_id={}, event_type={}, message={}", 
+                debug!("📨 SSE接收到任务事件: task_id={}, event_type={}, message={}", 
                       task_event.task_id, task_event.event_type, task_event.message);
                 
                 // 转换为SSE事件

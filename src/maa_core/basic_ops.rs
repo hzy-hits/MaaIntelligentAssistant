@@ -79,12 +79,12 @@ where
 /// # 返回
 /// 连接ID
 pub async fn connect_device(address: &str) -> Result<i32> {
-    info!("尝试连接设备: {}", address);
+    // 尝试连接设备: {}
     
     execute_maa_operation(|assistant| {
         // 尝试连接设备
         let connection_id = assistant.async_connect("adb", address, "{}", true)?;
-        info!("设备连接成功，连接ID: {}", connection_id);
+        // 设备连接成功，连接ID: {}
         Ok(connection_id)
     }).await.or_else(|_| {
         warn!("MAA Core 不可用，使用 stub 模式");
@@ -103,7 +103,7 @@ pub async fn connect_device(address: &str) -> Result<i32> {
 /// # 返回
 /// 任务执行结果
 pub async fn execute_fight(stage: &str, medicine: i32, stone: i32, times: i32) -> Result<Value> {
-    info!("尝试执行刷图任务: {} x {}, medicine={}, stone={}", stage, times, medicine, stone);
+    // 执行刷图任务: {} x {}, medicine={}, stone={}
     
     execute_maa_operation(|assistant| {
         // 构建刷图任务参数
@@ -116,7 +116,7 @@ pub async fn execute_fight(stage: &str, medicine: i32, stone: i32, times: i32) -
         
         // 创建刷图任务
         let task_id = assistant.append_task("Fight", fight_params.to_string().as_str())?;
-        info!("刷图任务创建成功，任务ID: {}", task_id);
+        // 刷图任务创建成功，任务ID: {}
         
         // 启动任务
         assistant.start()?;
@@ -215,7 +215,7 @@ pub async fn get_tasks_list() -> Result<Value> {
 /// * `task_id` - 任务ID
 /// * `params` - 新的参数JSON
 pub async fn set_task_params(task_id: i32, params: Value) -> Result<Value> {
-    info!("动态调整任务 {} 参数: {}", task_id, params);
+    // 动态调整任务 {} 参数
     
     execute_maa_operation(|assistant| {
         let params_str = params.to_string();
@@ -243,7 +243,7 @@ pub async fn set_task_params(task_id: i32, params: Value) -> Result<Value> {
 /// # 返回
 /// 操作结果
 pub async fn back_to_home() -> Result<Value> {
-    info!("执行快速返回主界面操作");
+    // 执行快速返回主界面操作
     
     execute_maa_operation(|assistant| {
         assistant.back_to_home()?;
@@ -343,7 +343,7 @@ pub async fn execute_infrastructure(facility: &[String], drones: &str, threshold
 
 /// 智能任务参数调整策略
 pub async fn adjust_task_strategy(task_id: i32, strategy: &str, context: Value) -> Result<Value> {
-    info!("应用智能调整策略: {} 到任务 {}", strategy, task_id);
+    // 应用智能调整策略: {} 到任务 {}
     
     let new_params = match strategy {
         "reduce_difficulty" => {

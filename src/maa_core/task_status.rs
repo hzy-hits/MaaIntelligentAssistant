@@ -112,7 +112,7 @@ pub fn start_task(task_id: i32) {
     let mut tasks = GLOBAL_TASK_STATUS.lock().unwrap();
     if let Some(task) = tasks.get_mut(&task_id) {
         task.start();
-        info!("任务开始执行: task_id={}", task_id);
+        // 任务开始执行: task_id={}
     }
 }
 
@@ -121,7 +121,7 @@ pub fn complete_task(task_id: i32, result: Value) {
     let mut tasks = GLOBAL_TASK_STATUS.lock().unwrap();
     if let Some(task) = tasks.get_mut(&task_id) {
         task.complete(result);
-        info!("任务执行完成: task_id={}", task_id);
+        // 任务执行完成: task_id={}
     }
 }
 
@@ -182,7 +182,7 @@ pub fn cleanup_old_tasks() {
     }
     
     if !old_task_ids.is_empty() {
-        info!("清理了 {} 个旧任务", old_count);
+        // 清理了 {} 个旧任务
     }
 }
 

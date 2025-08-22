@@ -111,49 +111,43 @@ async fn run_server() -> Result<()> {
         .with_target(false)
         .init();
 
-    info!("启动 MAA 优化服务器 V2");
-    info!("🚀 架构优化特性:");
-    info!("  ✅ 单队列+优先级系统");
-    info!("  ✅ Worker内部状态管理");
-    info!("  ✅ 减少JSON序列化");
-    info!("  ✅ SSE实时推送");
-    info!("  ✅ 同步/异步任务分离");
+    warn!("🚀 MAA优化服务器V2启动 - 单队列+优先级+SSE实时推送");
     
     // V2优化架构 - 真正的优化实现
     let _task_event_receiver = init_task_notification_system();
-    info!("🔔 任务通知系统已初始化");
+    // 任务通知系统初始化完成
     
     // 创建V2任务队列 - 单队列+优先级
     let (task_sender, task_receiver) = create_maa_task_channel_v2();
-    info!("📋 V2任务队列已创建 - 单队列+优先级系统");
+    // V2任务队列创建完成
     
     // 创建V2 MAA工作者 - 内部状态管理 + SSE推送
     let (maa_worker, event_broadcaster) = MaaWorkerV2::new();
-    info!("🔧 MAA工作者V2已创建 - 支持内部状态管理");
+    // MAA工作者V2创建完成
     
     // 创建真正的SSE管理器（连接到工作者事件）
     let sse_manager = SseManager::new(event_broadcaster.clone());
-    info!("✅ SSE管理器已创建，连接到真实的任务事件流");
+    // SSE管理器创建完成
     
     // 设置全局SSE广播器，让MAA Core回调能转发到SSE
     maa_intelligent_server::maa_core::set_global_sse_broadcaster(event_broadcaster.clone());
-    info!("✅ 已配置MAA Core回调转发到SSE系统");
+    // MAA Core回调转发配置完成
     
     // 启动MAA工作线程V2（解决Send问题，使用task::spawn_local）
     tokio::task::spawn_local(async move {
         maa_worker.run(task_receiver).await;
     });
     
-    info!("🚀 MAA工作线程V2已启动 - 优化架构生效");
+    // MAA工作线程V2启动完成
     
     // 使用V2优化版处理器 - 减少JSON序列化
     let enhanced_handler = create_enhanced_function_handler_v2(task_sender.clone());
-    info!("✅ V2优化版Function Calling处理器创建成功");
+    // Function Calling处理器V2创建完成
     
     // 创建AI客户端
     let ai_client = match AiClient::from_env() {
         Ok(client) => {
-            info!("AI客户端从环境变量初始化成功");
+            // AI客户端从环境变量初始化成功
             client
         },
         Err(e) => {
@@ -165,7 +159,7 @@ async fn run_server() -> Result<()> {
             AiClient::new(ai_config).map_err(|e| anyhow::anyhow!("AI客户端初始化失败: {}", e))?
         }
     };
-    info!("✅ AI客户端初始化成功");
+    // AI客户端初始化完成
     
     // 初始化应用状态V2
     let app_state = AppStateV2 {
@@ -215,17 +209,11 @@ async fn run_server() -> Result<()> {
         .unwrap_or_else(|_| CONFIG.server.default_port.parse().unwrap_or(8080));
 
     let addr = CONFIG.server.bind_address(Some(&port.to_string()));
-    info!("🌐 优化服务器监听: http://{}", addr);
-    info!("📊 API文档: http://localhost:{}{}", port, CONFIG.server.tools_path);
-    info!("💓 健康检查: http://localhost:{}{}", port, CONFIG.server.health_check_path);
-    info!("🔄 SSE任务流: http://localhost:{}/sse/tasks", port);
-    info!("🎯 单任务SSE: http://localhost:{}/sse/task/{{task_id}}", port);
-    info!("🧪 SSE测试接口: http://localhost:{}/sse/test", port);
-    info!("📈 优化统计: http://localhost:{}/optimization/stats", port);
+    warn!("✅ MAA优化服务器V2已启动 - http://localhost:{}", port);
 
     let listener = TcpListener::bind(&addr).await?;
     
-    info!("🚀 优化服务器启动完成，开始处理请求...");
+    // 服务器启动完成，开始处理请求
     
     match axum::serve(listener, app).await {
         Ok(_) => {
@@ -673,7 +661,7 @@ async fn execute_function_calls(
     let mut screenshot_info = None;
     
     for function_call in function_calls {
-        info!("执行工具: {} with args: {:?}", function_call.name, function_call.arguments);
+        warn!("执行工具: {} with args: {:?}", function_call.name, function_call.arguments);
         
         if function_call.name == "maa_take_screenshot" {
             screenshot_info = handle_screenshot_call(&function_call, state).await;

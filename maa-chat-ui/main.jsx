@@ -76,14 +76,14 @@ const MAAChat = () => {
     }
   }
 
-  // 处理SSE事件的统一函数 - 优化版本
+  // 处理SSE事件的统一函数 - 显示所有事件
   const handleSSEEvent = (event) => {
     try {
       const data = JSON.parse(event.data)
       
-      // 只为重要事件记录日志
-      if (['started', 'completed', 'failed', 'taskchain_started', 'taskchain_completed'].includes(event.type)) {
-        console.log(`📨 收到${event.type}事件: ${data.message}`)
+      // 记录所有事件（除了心跳）
+      if (event.type !== 'heartbeat') {
+        console.log(`📨 收到${event.type}事件:`, data)
       }
       
       // 更新任务状态
@@ -92,68 +92,78 @@ const MAAChat = () => {
           ...prev,
           [data.task_id]: data
         }))
-        
-        // 根据事件类型添加不同的消息通知
-        let notificationMessage = ''
-        let notificationIcon = ''
-        
-        switch (event.type) {
-          case 'started':
-            notificationIcon = '🚀'
-            notificationMessage = `任务启动：${data.message || data.task_type}`
-            break
-          case 'progress':
-            notificationIcon = '⏳'
-            notificationMessage = `任务进行中：${data.message}`
-            break
-          case 'completed':
-            notificationIcon = '✅'
-            notificationMessage = `任务完成：${data.message}`
-            break
-          case 'failed':
-            notificationIcon = '❌'
-            notificationMessage = `任务失败：${data.message}`
-            break
-          case 'taskchain_started':
-            notificationIcon = '🎬'
-            notificationMessage = `任务链开始：${data.message}`
-            break
-          case 'taskchain_completed':
-            notificationIcon = '🎉'
-            notificationMessage = `任务链完成：${data.message}`
-            break
-          case 'subtask_started':
-            notificationIcon = '🔧'
-            notificationMessage = `子任务开始：${data.message}`
-            break
-          case 'subtask_completed':
-            notificationIcon = '✅'
-            notificationMessage = `子任务完成：${data.message}`
-            break
-          default:
-            notificationIcon = '📨'
-            notificationMessage = `${event.type}: ${data.message || '收到更新'}`
-        }
-        
-        // 为重要事件添加聊天消息
-        if (['started', 'completed', 'failed', 'taskchain_started', 'taskchain_completed'].includes(event.type)) {
-          setMessages(prev => [...prev, {
-            id: generateMessageId(),
-            role: 'assistant',
-            content: `${notificationIcon} ${notificationMessage}`
-          }])
-        }
+      }
+      
+      // 为所有事件类型添加通知消息
+      let notificationMessage = ''
+      let notificationIcon = ''
+      
+      switch (event.type) {
+        case 'started':
+          notificationIcon = '🚀'
+          notificationMessage = `任务启动：${data.message || data.task_type}`
+          break
+        case 'progress':
+          notificationIcon = '⏳'
+          notificationMessage = `任务进行中：${data.message}`
+          break
+        case 'completed':
+          notificationIcon = '✅'
+          notificationMessage = `任务完成：${data.message}`
+          break
+        case 'failed':
+          notificationIcon = '❌'
+          notificationMessage = `任务失败：${data.message}`
+          break
+        case 'taskchain_started':
+          notificationIcon = '🎬'
+          notificationMessage = `任务链开始：${data.message}`
+          break
+        case 'taskchain_completed':
+          notificationIcon = '🎉'
+          notificationMessage = `任务链完成：${data.message}`
+          break
+        case 'subtask_started':
+          notificationIcon = '🔧'
+          notificationMessage = `子任务开始：${data.message}`
+          break
+        case 'subtask_completed':
+          notificationIcon = '✅'
+          notificationMessage = `子任务完成：${data.message}`
+          break
+        default:
+          notificationIcon = '📨'
+          notificationMessage = `${event.type}: ${data.message || JSON.stringify(data)}`
+      }
+      
+      // 为所有任务事件添加聊天消息（除了心跳）
+      if (event.type !== 'heartbeat' && notificationMessage) {
+        setMessages(prev => [...prev, {
+          id: generateMessageId(),
+          role: 'assistant',
+          content: `${notificationIcon} ${notificationMessage}`
+        }])
       }
     } catch (error) {
       console.error(`❌ 解析${event.type}事件失败:`, error)
     }
   }
 
-  // 处理心跳事件 - 静默处理，不输出日志
+  // 处理心跳事件 - 静默处理，定期确认连接状态
   const handleHeartbeat = (event) => {
     try {
       const data = JSON.parse(event.data)
-      // 心跳事件不需要记录日志，只需要保持连接活跃
+      
+      // 只在特定时机输出心跳日志
+      if (!window.heartbeatCount) window.heartbeatCount = 0
+      window.heartbeatCount++
+      
+      // 每30次心跳输出一次日志（约5分钟）
+      if (window.heartbeatCount % 30 === 1) {
+        console.log('💓 SSE连接正常，心跳计数:', window.heartbeatCount)
+      }
+      
+      // 不再自动显示心跳UI消息，避免刷屏
     } catch (error) {
       console.error('❌ 解析心跳事件失败:', error)
     }
@@ -174,6 +184,16 @@ const MAAChat = () => {
     eventSource.onopen = () => {
       console.log('✅ SSE连接已建立')
       setSseConnected(true)
+      
+      // 只在首次连接时显示UI提示
+      if (!window.sseConnectedOnce) {
+        window.sseConnectedOnce = true
+        setMessages(prev => [...prev, {
+          id: generateMessageId(),
+          role: 'assistant',
+          content: '🔗 SSE实时连接已建立，开始接收任务更新...'
+        }])
+      }
     }
 
     // 添加所有自定义事件类型的监听器
@@ -194,8 +214,11 @@ const MAAChat = () => {
 
     // 默认消息处理器（处理没有指定类型的事件）
     eventSource.onmessage = (event) => {
-      console.log('📨 收到默认消息事件')
-      handleSSEEvent({...event, type: 'message'})
+      // 只记录非心跳的默认消息
+      if (!event.data.includes('"message":"连接正常"')) {
+        console.log('📨 收到默认消息事件:', event.data)
+      }
+      handleSSEEvent({...event, type: 'default'})
     }
 
     // 错误处理
@@ -207,6 +230,16 @@ const MAAChat = () => {
         withCredentials: eventSource.withCredentials
       })
       setSseConnected(false)
+      
+      // 只在首次错误时显示错误信息到UI
+      if (!window.sseErrorShown) {
+        window.sseErrorShown = true
+        setMessages(prev => [...prev, {
+          id: generateMessageId(),
+          role: 'assistant',
+          content: `❌ SSE连接中断，正在后台重试连接...`
+        }])
+      }
       
       // 5秒后重试连接
       setTimeout(() => {

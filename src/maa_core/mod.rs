@@ -93,7 +93,7 @@ unsafe extern "C" fn maa_callback(
     };
     
     // 记录MAA事件
-    info!("MAA回调事件: {} | JSON: {}", msg, details_str);
+    debug!("MAA回调事件: {} | JSON: {}", msg, details_str);
     
     // 处理重要事件 - 使用官方协议的消息代码
     match msg {
@@ -126,7 +126,7 @@ unsafe extern "C" fn maa_callback(
             }
         },
         3 => { // AllTasksCompleted
-            info!("全部任务完成: {}", details_str);
+            debug!("全部任务完成: {}", details_str);
             
             // 提取任务链信息
             let taskchain = details_json.get("taskchain")
@@ -175,7 +175,7 @@ unsafe extern "C" fn maa_callback(
             }
         },
         10001 => {
-            info!("任务链开始: {}", details_str);
+            debug!("任务链开始: {}", details_str);
             // 更新任务状态
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
                 let task_id = task_id as i32;
@@ -186,7 +186,7 @@ unsafe extern "C" fn maa_callback(
             }
         },
         10002 => {
-            info!("任务链完成: {}", details_str);
+            debug!("任务链完成: {}", details_str);
             // 更新任务状态和通知oneshot channel
             if let Some(task_id) = details_json.get("taskid").and_then(|v| v.as_i64()) {
                 task_status::handle_maa_callback(task_id as i32, msg, details_json.clone());
@@ -364,7 +364,7 @@ fn forward_to_sse_global(event_type: &str, message: String, details: Value) {
             };
             
             let _ = broadcaster.send(sse_event);
-            debug!("全局事件已转发到SSE: event_type={}", event_type);
+            debug!("全局事件已转发到SSE: event_type={}, from=forward_to_sse_global", event_type);
         } else {
             debug!("SSE广播器未设置，跳过全局事件转发");
         }
